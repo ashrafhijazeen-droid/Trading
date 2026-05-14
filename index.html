@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TradeSync AI</title>
+    <title>TradeSync AI Pro</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body style="background-color: #000; color: #fff; margin: 0; font-family: monospace;">
+<body style="background-color: #000; color: #fff; margin: 0; font-family: monospace; display: flex; justify-content: center; align-items: center; min-height: 100vh;">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -18,101 +18,91 @@
             const [input, setInput] = useState('XAUUSD');
             const [symbol, setSymbol] = useState('OANDA:XAU_USD');
             const [price, setPrice] = useState(null);
-            const [status, setStatus] = useState('IDLE');
+            const [status, setStatus] = useState('READY');
             const [signals, setSignals] = useState({ scalping: '...', day: '...', swing: '...' });
             
             const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-            const analyzeLocally = (pData) => {
-                // Logic fallback: If tech API fails, use price change (%)
-                const change = ((pData.c - pData.pc) / pData.pc) * 100;
-                let trend = change > 0.1 ? 'BUY' : change < -0.1 ? 'SELL' : 'WAIT';
-                
-                setSignals({
-                    scalping: change > 0.3 ? 'STRONG BUY' : change < -0.3 ? 'STRONG SELL' : 'NEUTRAL',
-                    day: trend + ' TREND',
-                    swing: Math.abs(change) > 0.5 ? 'TREND ACTIVE' : 'NO BIAS'
-                });
-            };
-
-            const fetchData = async () => {
-                setStatus('SCANNING...');
+            const fetchData = async (targetSymbol) => {
+                setStatus('SCANNING ' + targetSymbol + '...');
                 try {
-                    // 1. Get Quote
-                    const pR = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${API_KEY}`);
-                    const pD = await pR.json();
+                    const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${API_KEY}`);
+                    const data = await res.json();
                     
-                    if (pD && pD.c) {
-                        setPrice(pD.c);
+                    if (data && data.c && data.c !== 0) {
+                        setPrice(data.c);
+                        setSymbol(targetSymbol);
                         setStatus('LIVE');
-                        // Use local logic as a base
-                        analyzeLocally(pD);
-                    } else {
-                        setStatus('ERR: TRY FX:EUR_USD');
+                        
+                        // Generate AI Advice based on Price Action
+                        const change = ((data.c - data.pc) / data.pc) * 100;
+                        setSignals({
+                            scalping: change > 0.1 ? 'BUY MOMENTUM' : change < -0.1 ? 'SELL MOMENTUM' : 'WAIT',
+                            day: Math.abs(change) > 0.2 ? (change > 0 ? 'BULLISH BIAS' : 'BEARISH BIAS') : 'CONSOLIDATING',
+                            swing: Math.abs(change) > 0.5 ? 'TREND ACTIVE' : 'NO MACRO SIGNAL'
+                        });
+                        return true;
                     }
-
-                    // 2. Try Technical Indicators (Might be limited on Free)
-                    const tR = await fetch(`https://finnhub.io/api/v1/scan/technical-indicator?symbol=${symbol}&resolution=D&token=${API_KEY}`);
-                    const tD = await tR.json();
-                    
-                    if (tD && tD.technicalIndicator) {
-                        const { buy, sell } = tD.technicalIndicator;
-                        setSignals(prev => ({
-                            ...prev,
-                            day: buy > sell ? 'BUY (CONFIRMED)' : 'SELL (CONFIRMED)'
-                        }));
-                    }
+                    return false;
                 } catch (err) {
-                    setStatus('LIMIT REACHED');
+                    return false;
                 }
             };
 
-            useEffect(() => { fetchData(); }, [symbol]);
+            const handleSearch = async () => {
+                const s = input.toUpperCase().trim();
+                let success = false;
 
-            const handleKey = (e) => {
-                if (e.key === 'Enter') {
-                    let s = input.toUpperCase().trim();
-                    // AUTO-FORMATTER
-                    if (s === 'GOLD' || s === 'XAUUSD') s = 'OANDA:XAU_USD';
-                    else if (s === 'SILVER' || s === 'XAGUSD') s = 'OANDA:XAG_USD';
-                    else if (s.length === 6) s = `FX:${s.slice(0,3)}_${s.slice(3)}`;
-                    
-                    setSymbol(s);
-                }
+                // Try 1: OANDA Prefix (Best for Metals)
+                if (s === 'XAUUSD' || s === 'GOLD') success = await fetchData('OANDA:XAU_USD');
+                if (!success && (s === 'XAGUSD' || s === 'SILVER')) success = await fetchData('OANDA:XAG_USD');
+
+                // Try 2: FX Prefix (Best for Forex)
+                if (!success && s.length === 6) success = await fetchData(`FX:${s.slice(0,3)}_${s.slice(3)}`);
+
+                // Try 3: Raw Symbol (Best for Stocks/Indices)
+                if (!success) success = await fetchData(s);
+
+                if (!success) setStatus('SYMBOL NOT FOUND');
             };
+
+            useEffect(() => { handleSearch(); }, []);
 
             return (
-                <div style={{ padding: '20px', maxWidth: '400px', margin: '0 auto' }}>
-                    <div style={{ border: '1px solid #333', padding: '20px', borderRadius: '20px', backgroundColor: '#0a0a0a' }}>
-                        <input 
-                            value={input} 
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKey}
-                            style={{ background: '#000', color: '#3b82f6', border: '1px solid #333', width: '100%', padding: '12px', borderRadius: '10px', boxSizing: 'border-box', textAlign: 'center', fontWeight: 'bold', outline: 'none' }}
-                            placeholder="XAUUSD or EURUSD"
-                        />
-                        <div style={{ fontSize: '40px', fontWeight: '900', margin: '20px 0', textAlign: 'center' }}>
-                            {price ? `$${price.toLocaleString()}` : '---'}
+                <div style={{ padding: '30px', background: '#0a0a0a', borderRadius: '30px', border: '1px solid #222', width: '320px', textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+                    <div style={{ fontSize: '10px', color: '#555', marginBottom: '10px', letterSpacing: '2px' }}>TRADESYNC TERMINAL</div>
+                    
+                    <input 
+                        value={input} 
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                        style={{ background: '#000', color: '#3b82f6', border: '1px solid #333', width: '100%', padding: '15px', borderRadius: '15px', boxSizing: 'border-box', textAlign: 'center', fontSize: '18px', fontWeight: 'bold', outline: 'none', marginBottom: '10px' }}
+                        placeholder="XAUUSD"
+                    />
+
+                    <div style={{ margin: '20px 0' }}>
+                        <div style={{ fontSize: '45px', fontWeight: '900', color: '#fff', letterSpacing: '-2px' }}>
+                            {price ? `$${price.toFixed(2)}` : '---'}
                         </div>
-                        <div style={{ fontSize: '10px', color: '#666', textAlign: 'center' }}>
-                            {symbol} • <span style={{ color: status === 'LIVE' ? '#22c55e' : '#f59e0b' }}>{status}</span>
+                        <div style={{ fontSize: '10px', color: status === 'LIVE' ? '#22c55e' : '#f59e0b', marginTop: '5px' }}>
+                            {status}
                         </div>
                     </div>
 
-                    <div style={{ marginTop: '20px' }}>
-                        {Object.entries(signals).map(([name, val]) => (
-                            <div key={name} style={{ background: '#111', padding: '15px', borderRadius: '12px', marginBottom: '10px', border: '1px solid #222' }}>
-                                <div style={{ fontSize: '9px', color: '#555', marginBottom: '5px' }}>{name.toUpperCase()} ADVICE</div>
-                                <div style={{ fontSize: '14px', fontWeight: 'black', color: val.includes('BUY') ? '#22c55e' : val.includes('SELL') ? '#ef4444' : '#fff' }}>
+                    <div style={{ textAlign: 'left', marginTop: '30px' }}>
+                        {Object.entries(signals).map(([key, val]) => (
+                            <div key={key} style={{ background: '#111', padding: '12px', borderRadius: '12px', marginBottom: '10px', border: '1px solid #1a1a1a' }}>
+                                <div style={{ fontSize: '8px', color: '#444', fontWeight: 'bold', marginBottom: '4px' }}>{key.toUpperCase()}</div>
+                                <div style={{ fontSize: '12px', fontWeight: 'bold', color: val.includes('BUY') || val.includes('BULL') ? '#22c55e' : val.includes('SELL') || val.includes('BEAR') ? '#ef4444' : '#666' }}>
                                     {val}
                                 </div>
                             </div>
                         ))}
                     </div>
-                    
-                    <p style={{ fontSize: '9px', color: '#333', textAlign: 'center', marginTop: '10px' }}>
-                        Auto-detecting Forex & Metals. Press ENTER to scan.
-                    </p>
+
+                    <button onClick={handleSearch} style={{ width: '100%', padding: '12px', background: '#222', border: 'none', borderRadius: '12px', color: '#fff', fontSize: '10px', cursor: 'pointer', marginTop: '10px', fontWeight: 'bold' }}>
+                        RE-SCAN MARKET
+                    </button>
                 </div>
             );
         }
