@@ -1,127 +1,160 @@
-import React, { useState, useEffect } from 'react';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSync AI Pro</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #000; color: #fff; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+    </script>
+</head>
+<body>
+    <div id="root"></div>
 
-const FINNHUB_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-const TradeSyncPro = () => {
-  const [symbol, setSymbol] = useState('OANDA:XAU_USD');
-  const [price, setPrice] = useState(0);
-  const [signals, setSignals] = useState({ scalping: 'SCANNING', day: 'SCANNING', swing: 'SCANNING' });
-  const [marketData, setMarketData] = useState(null);
-  const [newsSentiment, setNewsSentiment] = useState({ score: 0, buzz: 0, label: 'NEUTRAL' });
+        const FINNHUB_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-  useEffect(() => {
-    const performHybridAnalysis = async () => {
-      try {
-        // 1. Fetch Current Price
-        const priceRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_KEY}`);
-        const priceData = await priceRes.json();
-        if (priceData.c) setPrice(priceData.c);
+        const TradeSyncPro = () => {
+            const [symbol, setSymbol] = useState('OANDA:XAU_USD');
+            const [price, setPrice] = useState(0);
+            const [signals, setSignals] = useState({ scalping: 'SCANNING', day: 'SCANNING', swing: 'SCANNING' });
+            const [marketData, setMarketData] = useState(null);
+            const [newsSentiment, setNewsSentiment] = useState({ score: 0.5, buzz: 0, label: 'NEUTRAL' });
 
-        // 2. Fetch News Sentiment (Fundamental Analysis)
-        // Fetches news buzz and sentiment score (0 to 1)
-        const newsRes = await fetch(`https://finnhub.io/api/v1/news-sentiment?symbol=${symbol.split(':')[1] || symbol}&token=${FINNHUB_KEY}`);
-        const nData = await newsRes.json();
-        if (nData.sentiment) {
-            const score = nData.sentiment.bullishPercent;
-            const label = score > 0.6 ? 'BULLISH' : score < 0.4 ? 'BEARISH' : 'NEUTRAL';
-            setNewsSentiment({ score, buzz: nData.buzz.buzz, label });
-        }
+            const performHybridAnalysis = async () => {
+                try {
+                    // 1. Price
+                    const pRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_KEY}`);
+                    const pData = await pRes.json();
+                    if (pData.c) setPrice(pData.c);
 
-        // 3. Fetch Technical Indicators
-        const techRes = await fetch(`https://finnhub.io/api/v1/scan/technical-indicator?symbol=${symbol}&resolution=D&token=${FINNHUB_KEY}`);
-        const techData = await techRes.json();
-        const indicators = techData.technicalIndicator;
-        setMarketData(indicators);
+                    // 2. News (Fundamental)
+                    const shortSymbol = symbol.split(':').pop() || symbol;
+                    const nRes = await fetch(`https://finnhub.io/api/v1/news-sentiment?symbol=${shortSymbol}&token=${FINNHUB_KEY}`);
+                    const nData = await nRes.json();
+                    let currentLabel = 'NEUTRAL';
+                    if (nData.sentiment) {
+                        const score = nData.sentiment.bullishPercent;
+                        currentLabel = score > 0.6 ? 'BULLISH' : score < 0.4 ? 'BEARISH' : 'NEUTRAL';
+                        setNewsSentiment({ score, buzz: nData.buzz.buzz || 0, label: currentLabel });
+                    }
 
-        if (indicators) {
-          const { buy, sell, rsi } = indicators;
-          const isNewsBullish = newsSentiment.label === 'BULLISH';
-          const isNewsBearish = newsSentiment.label === 'BEARISH';
+                    // 3. Technicals
+                    const tRes = await fetch(`https://finnhub.io/api/v1/scan/technical-indicator?symbol=${symbol}&resolution=D&token=${FINNHUB_KEY}`);
+                    const tData = await tRes.json();
+                    const indicators = tData.technicalIndicator;
+                    setMarketData(indicators);
 
-          // --- HYBRID LOGIC ENGINE ---
-          
-          // Scalping: Momentum (Technical Heavy)
-          if (rsi < 30 && !isNewsBearish) setSignals(s => ({...s, scalping: 'BUY (OVERSOLD)'}));
-          else if (rsi > 70 && !isNewsBullish) setSignals(s => ({...s, scalping: 'SELL (OVERBOUGHT)'}));
-          else setSignals(s => ({...s, scalping: 'WAIT'}));
+                    if (indicators) {
+                        const { buy, sell, rsi } = indicators;
+                        const isBullish = currentLabel === 'BULLISH';
+                        const isBearish = currentLabel === 'BEARISH';
 
-          // Day Trade: Trend + News Buzz
-          if (buy > sell + 5 && !isNewsBearish) setSignals(s => ({...s, day: 'BUY (TREND+NEWS)'}));
-          else if (sell > buy + 5 && !isNewsBullish) setSignals(s => ({...s, day: 'SELL (TREND+NEWS)'}));
-          else setSignals(s => ({...s, day: 'WAIT (NEWS CONFLICT)'}));
+                        // Logic
+                        setSignals({
+                            scalping: rsi < 35 && !isBearish ? 'BUY (OVERSOLD)' : rsi > 65 && !isBullish ? 'SELL (OVERBOUGHT)' : 'WAIT',
+                            day: buy > sell + 3 && !isBearish ? 'BUY (TREND+NEWS)' : sell > buy + 3 && !isBullish ? 'SELL (TREND+NEWS)' : 'WAIT (CONFLICT)',
+                            swing: buy > 12 && isBullish ? 'STRONG LONG' : sell > 12 && isBearish ? 'STRONG SHORT' : 'NEUTRAL'
+                        });
+                    }
+                } catch (e) { console.log("Engine Error: ", e); }
+            };
 
-          // Swing: High Conviction (Fundamental Heavy)
-          if (buy > 15 && isNewsBullish) setSignals(s => ({...s, swing: 'STRONG LONG'}));
-          else if (sell > 15 && isNewsBearish) setSignals(s => ({...s, swing: 'STRONG SHORT'}));
-          else setSignals(s => ({...s, swing: 'NEUTRAL / NO BIAS'}));
-        }
-      } catch (e) { console.error("Hybrid engine failed"); }
-    };
+            useEffect(() => {
+                performHybridAnalysis();
+                const id = setInterval(performHybridAnalysis, 60000);
+                return () => clearInterval(id);
+            }, [symbol]);
 
-    performHybridAnalysis();
-    const interval = setInterval(performHybridAnalysis, 60000); // 1 minute updates
-    return () => clearInterval(interval);
-  }, [symbol, newsSentiment.label]);
+            return (
+                <div className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto space-y-6 uppercase font-sans tracking-tighter">
+                    {/* Header */}
+                    <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-3xl flex justify-between items-center shadow-2xl">
+                        <div>
+                            <input 
+                                value={symbol} 
+                                onChange={(e) => setSymbol(e.target.value.toUpperCase())} 
+                                className="bg-transparent text-blue-500 font-black text-2xl outline-none w-full"
+                            />
+                            <p className="text-[9px] text-zinc-500 mt-1 font-bold tracking-widest">Market Hybrid Scanner</p>
+                        </div>
+                        <div className="text-right">
+                            <div className="text-4xl font-black tabular-nums text-white">${price.toFixed(2)}</div>
+                        </div>
+                    </div>
 
-  return (
-    <div className="min-h-screen bg-black text-white p-4 font-sans uppercase">
-      <div className="max-w-4xl mx-auto space-y-6">
-        
-        {/* Header: Symbol & Price */}
-        <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 flex justify-between items-center shadow-2xl">
-          <div>
-            <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} className="bg-transparent text-blue-500 font-black text-2xl outline-none" />
-            <p className="text-[10px] text-zinc-500 mt-1">Status: Active Scanning...</p>
-          </div>
-          <div className="text-right">
-            <div className="text-4xl font-black tabular-nums tracking-tighter">${price.toFixed(2)}</div>
-            <div className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Global Market Price</div>
-          </div>
-        </div>
+                    {/* Fundamental Card */}
+                    <div className="bg-zinc-900/50 border border-zinc-800 p-5 rounded-2xl border-l-4 border-l-amber-500">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-[10px] font-black text-amber-500 tracking-widest">News Sentiment Analysis</h3>
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${newsSentiment.label === 'BULLISH' ? 'bg-green-600' : newsSentiment.label === 'BEARISH' ? 'bg-red-600' : 'bg-zinc-700'}`}>
+                                {newsSentiment.label}
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-black/40 p-3 rounded-xl border border-zinc-800">
+                                <p className="text-[8px] text-zinc-500 mb-1">Bullish Bias</p>
+                                <p className="text-xl font-black text-white">{Math.round(newsSentiment.score * 100)}%</p>
+                            </div>
+                            <div className="bg-black/40 p-3 rounded-xl border border-zinc-800">
+                                <p className="text-[8px] text-zinc-500 mb-1">Market Buzz</p>
+                                <p className="text-xl font-black text-white">{Math.round(newsSentiment.buzz * 100)}%</p>
+                            </div>
+                        </div>
+                    </div>
 
-        {/* Fundamental Analysis Card */}
-        <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 border-l-4 border-l-amber-500">
-           <div className="flex justify-between items-center">
-              <h3 className="text-[10px] font-black text-amber-500 tracking-[0.2em]">Fundamental Sentiment</h3>
-              <span className={`text-xs font-bold px-3 py-1 rounded-full ${newsSentiment.label === 'BULLISH' ? 'bg-green-600' : newsSentiment.label === 'BEARISH' ? 'bg-red-600' : 'bg-zinc-700'}`}>
-                {newsSentiment.label}
-              </span>
-           </div>
-           <div className="mt-4 grid grid-cols-2 gap-4">
-              <div className="bg-black p-3 rounded-xl">
-                 <p className="text-[9px] text-zinc-500">News Buzz (Volume)</p>
-                 <p className="text-xl font-bold">{Math.round(newsSentiment.buzz * 100)}%</p>
-              </div>
-              <div className="bg-black p-3 rounded-xl">
-                 <p className="text-[9px] text-zinc-500">Bullish Sentiment</p>
-                 <p className="text-xl font-bold text-green-500">{Math.round(newsSentiment.score * 100)}%</p>
-              </div>
-           </div>
-        </div>
+                    {/* Signal Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {Object.entries(signals).map(([key, val]) => (
+                            <div key={key} className="bg-zinc-900/50 border border-zinc-800 p-5 rounded-2xl text-center">
+                                <h4 className="text-[9px] font-bold text-zinc-500 mb-3 tracking-widest">{key}</h4>
+                                <div className={`p-3 rounded-xl text-[10px] font-black border ${
+                                    val.includes('BUY') || val.includes('LONG') ? 'border-green-500 text-green-500 bg-green-500/10' :
+                                    val.includes('SELL') || val.includes('SHORT') ? 'border-red-500 text-red-500 bg-red-500/10' :
+                                    'border-zinc-700 text-zinc-500 bg-zinc-800/50'
+                                }`}>
+                                    {val}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
 
-        {/* Hybrid Signal Strategy Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {['scalping', 'day', 'swing'].map((strat) => (
-            <div key={strat} className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800 text-center">
-              <h3 className="text-[10px] font-black text-zinc-600 mb-3 tracking-widest">{strat}</h3>
-              <div className={`p-4 rounded-xl font-black text-sm border-2 ${
-                signals[strat].includes('BUY') || signals[strat].includes('LONG') ? 'bg-green-900/20 border-green-500 text-green-500' :
-                signals[strat].includes('SELL') || signals[strat].includes('SHORT') ? 'bg-red-900/20 border-red-500 text-red-400' :
-                'bg-zinc-950 border-zinc-800 text-zinc-500'
-              }`}>
-                {signals[strat]}
-              </div>
-            </div>
-          ))}
-        </div>
+                    {/* Tech Insights */}
+                    {marketData && (
+                        <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-3xl text-center">
+                            <h3 className="text-[9px] font-bold text-zinc-500 mb-4 tracking-widest">Indicator Strength</h3>
+                            <div className="flex justify-around items-center">
+                                <div>
+                                    <p className="text-2xl font-black text-green-500">{marketData.buy}</p>
+                                    <p className="text-[8px] text-zinc-600">BUY</p>
+                                </div>
+                                <div className="h-8 w-px bg-zinc-800"></div>
+                                <div>
+                                    <p className="text-2xl font-black text-white">{marketData.rsi.toFixed(0)}</p>
+                                    <p className="text-[8px] text-zinc-600">RSI</p>
+                                </div>
+                                <div className="h-8 w-px bg-zinc-800"></div>
+                                <div>
+                                    <p className="text-2xl font-black text-red-500">{marketData.sell}</p>
+                                    <p className="text-[8px] text-zinc-600">SELL</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
 
-        <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 text-center text-[10px] text-zinc-500">
-           AI Engine is currently processing technical indicators from {symbol} while weighing 24-hour news sentiment. 
-           <br/><span className="text-blue-500">Auto-Correction Active:</span> Signals are automatically blocked if news conflicts with technicals.
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default TradeSyncPro;
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TradeSyncPro />);
+    </script>
+</body>
+</html>
