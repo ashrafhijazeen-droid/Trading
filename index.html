@@ -141,4 +141,300 @@
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
-                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d
+                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
+                    } else {
+                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
+                        if (!r.ok) return null;
+                        const d = await r.json();
+                        return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
+                    }
+                } catch (e) { return null; }
+            };
+
+            const getNews = async (symbolData) => {
+                try {
+                    let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
+                    if (symbolData.type === 'F' && symbolData.id !== 'SPY' && symbolData.id !== 'SLV') {
+                        const today = new Date().toISOString().split('T')[0];
+                        const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.id}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
+                    }
+                    const res = await fetch(endpoint);
+                    const data = await res.json();
+                    
+                    let filtered = data;
+                    if (symbolData.type === 'B' || symbolData.id === 'SPY' || symbolData.id === 'SLV') {
+                        filtered = data.filter(n => (n.headline || '').toUpperCase().includes(symbolData.search) || (n.summary || '').toUpperCase().includes(symbolData.search));
+                        if (filtered.length === 0) filtered = data;
+                    }
+                    setNewsFeed(filtered.slice(0, 8)); 
+                } catch (e) {
+                    setNewsFeed([{ headline: 'News API throttled. Waiting for refresh.', source: 'System', url: '#' }]);
+                }
+            };
+
+            const checkMarketStatus = (item) => {
+                const now = new Date();
+                const day = now.getUTCDay();
+                const hour = now.getUTCHours();
+                if (item.market === 'CRYPTO') return { text: 'MARKET LIVE 24/7', color: '#00e676' };
+                if (item.market === 'FOREX' || item.market === 'COMMODITIES') {
+                    if (day === 6 || (day === 5 && hour >= 21) || (day === 0 && hour < 21)) return { text: 'MARKET CLOSED', color: '#ff3d00' };
+                    return { text: 'MARKET LIVE', color: '#00e676' };
+                }
+                if (item.market === 'US EQUITIES') {
+                    if (day === 0 || day === 6) return { text: 'MARKET CLOSED', color: '#ff3d00' };
+                    if (hour >= 13 && hour < 21) return { text: 'MARKET OPEN', color: '#00e676' };
+                    return { text: 'AFTER-HOURS', color: '#f59e0b' };
+                }
+                return { text: 'LIVE FEED', color: '#00e676' };
+            };
+
+            const refreshAll = async () => {
+                const newPrices = {};
+                for (const item of list) { 
+                    const data = await getMarketData(item);
+                    if (data !== null) newPrices[item.id] = data;
+                }
+
+                const activeNew = newPrices[active.id];
+                const activeOld = prevPrices.current[active.id];
+
+                if (activeNew) {
+                    const currentPrice = activeNew.c;
+                    const dailyPct = activeNew.dp; 
+                    
+                    let currentScalp = prevSignals.current.scalping; 
+                    if (activeOld && currentPrice > activeOld.c) {
+                        currentScalp = 'BUY TICK'; 
+                    } else if (activeOld && currentPrice < activeOld.c) {
+                        currentScalp = 'SELL TICK'; 
+                    } else if (currentScalp === 'ANALYZING' || currentScalp.includes('WAITING')) {
+                        currentScalp = dailyPct > 0 ? 'MICRO UPTREND' : 'MICRO DOWNTREND';
+                    }
+
+                    const dayLogic = dailyPct > 0.5 ? 'STRONG BUY' : dailyPct < -0.5 ? 'STRONG SELL' : dailyPct > 0 ? 'BULLISH BIAS' : 'BEARISH BIAS';
+                    const swingLogic = dailyPct > 1.5 ? 'HOLD LONG' : dailyPct < -1.5 ? 'HOLD SHORT' : dailyPct > 0 ? 'UPTREND' : 'DOWNTREND';
+
+                    const newGeneratedSignals = { scalping: currentScalp, day: dayLogic, swing: swingLogic };
+                    setSignals(newGeneratedSignals);
+                    prevSignals.current = newGeneratedSignals; 
+
+                    const rsiCalc = Math.min(Math.max(50 + (dailyPct * 12), 15), 85).toFixed(1);
+                    const techLabel = dayLogic; 
+                    const techTrend = dailyPct >= 0 ? 'UPWARD' : 'DOWNWARD';
+                    
+                    const fundScore = Math.min(Math.max(50 + (dailyPct * 15), 10), 90).toFixed(0);
+                    const fundLabel = Math.abs(dailyPct) < 0.1 ? 'MIXED' : dailyPct > 0 ? 'BULLISH' : 'BEARISH';
+                    const buzzLevel = Math.abs(dailyPct) > 1.5 ? 'EXTREME' : Math.abs(dailyPct) > 0.5 ? 'HIGH' : 'AVERAGE';
+
+                    setAnalysis({
+                        tech: { rsi: rsiCalc, label: techLabel, trend: techTrend },
+                        fund: { score: fundScore, label: fundLabel, buzz: buzzLevel }
+                    });
+                }
+
+                setPrices(prev => {
+                    const current = { ...prev };
+                    Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
+                    prevPrices.current = current; 
+                    return current;
+                });
+            };
+
+            useEffect(() => {
+                getNews(active);
+                setMarketStatus(checkMarketStatus(active));
+                refreshAll();
+            }, [active.id]); 
+
+            useEffect(() => {
+                const timer = setInterval(() => {
+                    refreshAll();
+                    setMarketStatus(checkMarketStatus(active));
+                }, 15000); 
+                return () => clearInterval(timer);
+            }, [active.id, list.length]);
+
+            const handleAddTicker = () => {
+                if(newTicker) { 
+                    const upperTicker = newTicker.toUpperCase().trim();
+                    if (!list.find(item => item.id === upperTicker)) {
+                        const newItem = { 
+                            id: upperTicker, name: upperTicker, tag: upperTicker, 
+                            tv: upperTicker, type: 'F', search: upperTicker, market: 'USER ADDED' 
+                        };
+                        setList([...list, newItem]); 
+                    }
+                    setNewTicker(''); 
+                }
+            };
+
+            const handleRemoveTicker = (e, idToRemove) => {
+                e.stopPropagation(); // Prevents the click from selecting the asset
+                const newList = list.filter(item => item.id !== idToRemove);
+                setList(newList);
+                // If the user deleted the active item, fallback to the first item in the list
+                if (active.id === idToRemove && newList.length > 0) {
+                    setActive(newList[0]);
+                }
+            };
+
+            return (
+                <div className="dashboard-layout">
+                    
+                    {/* 1. HEADER */}
+                    <div className="glass-panel header-area" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 25px' }}>
+                        <div style={{ fontSize: '20px', fontWeight: '900', letterSpacing: '-0.5px' }}>
+                            TradeSync<span style={{ color: '#00e676' }}>.Pro</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '8px 16px', borderRadius: '20px', border: `1px solid ${marketStatus.color}40` }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: marketStatus.color, boxShadow: `0 0 10px ${marketStatus.color}` }}></div>
+                            <span style={{ fontSize: '10px', color: marketStatus.color, fontWeight: '800', letterSpacing: '1px' }}>{marketStatus.text}</span>
+                        </div>
+                    </div>
+
+                    {/* 2. LEFT SIDEBAR (Watchlist) */}
+                    <div className="glass-panel left-area">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', letterSpacing: '1px' }}>WATCHLIST</div>
+                            <div style={{ fontSize: '9px', color: '#444' }}>AUTO-SAVED</div>
+                        </div>
+                        
+                        <div className="scrollable-list" style={{ marginBottom: '16px' }}>
+                            {list.map(item => (
+                                <div key={item.id} className={`watchlist-item ${active.id === item.id ? 'active-item' : ''}`} onClick={() => setActive(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', marginBottom: '8px', cursor: 'pointer' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: '14px', fontWeight: '800' }}>{item.id}</span>
+                                        <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                        <span className="number-font" style={{ fontSize: '14px', color: prices[item.id] ? '#fff' : '#444', fontWeight: '700' }}>
+                                            {prices[item.id] ? `$${prices[item.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '---'}
+                                        </span>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            {prices[item.id] && (
+                                                <span className="number-font" style={{ fontSize: '10px', color: prices[item.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
+                                                    {prices[item.id].dp > 0 ? '+' : ''}{prices[item.id].dp.toFixed(2)}%
+                                                </span>
+                                            )}
+                                            {/* Delete Button */}
+                                            {list.length > 1 && (
+                                                <button className="delete-btn" onClick={(e) => handleRemoveTicker(e, item.id)}>✖</button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <input 
+                                value={newTicker} 
+                                onChange={(e) => setNewTicker(e.target.value)} 
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
+                                placeholder="Add ticker (e.g. MSFT)" 
+                                style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
+                            />
+                            <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
+                        </div>
+                    </div>
+
+                    {/* 3. MAIN CENTER (Price, Signals, Analysis, Chart) */}
+                    <div className="main-area">
+                        <div className="glass-panel" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '12px', color: '#888', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                                {active.name} / USD
+                            </div>
+                            <div className="number-font" style={{ fontSize: '56px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
+                                ${prices[active.id] ? prices[active.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '---'}
+                            </div>
+                            <div className="number-font" style={{ fontSize: '14px', fontWeight: '800', color: prices[active.id] && prices[active.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
+                                {prices[active.id] ? `${prices[active.id].dp > 0 ? '+' : ''}${prices[active.id].dp.toFixed(2)}% (24H)` : '0.00%'}
+                            </div>
+                        </div>
+
+                        {/* SIGNAL PILLS */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                            {Object.entries(signals).map(([k, v]) => {
+                                const isBuy = v.includes('BUY') || v.includes('LONG') || v.includes('BULLISH') || v.includes('UPTREND');
+                                const isSell = v.includes('SELL') || v.includes('SHORT') || v.includes('BEARISH') || v.includes('DOWNTREND');
+                                return (
+                                    <div key={k} style={{ 
+                                        padding: '16px 8px', borderRadius: '16px', textAlign: 'center', transition: '0.3s',
+                                        background: isBuy ? 'rgba(0, 230, 118, 0.05)' : isSell ? 'rgba(255, 61, 0, 0.05)' : 'rgba(255, 255, 255, 0.02)', 
+                                        border: `1px solid ${isBuy ? 'rgba(0, 230, 118, 0.3)' : isSell ? 'rgba(255, 61, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`
+                                    }}>
+                                        <div style={{ fontSize: '10px', color: '#888', marginBottom: '6px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{k}</div>
+                                        <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '12px', fontWeight: '900' }}>{v}</div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        {/* DEEP ANALYSIS SECTION */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #00bfff' }}>
+                                <div style={{ fontSize: '10px', color: '#00bfff', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>TECHNICAL METRICS</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>RSI (14)</span>
+                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.tech.rsi > 65 ? '#00e676' : analysis.tech.rsi < 35 ? '#ff3d00' : '#fff' }}>{analysis.tech.rsi}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>TREND</span>
+                                    <span style={{ fontSize: '11px', fontWeight: '800', color: analysis.tech.trend === 'UPWARD' ? '#00e676' : analysis.tech.trend === 'DOWNWARD' ? '#ff3d00' : '#fff' }}>{analysis.tech.trend}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>CONSENSUS</span>
+                                    <span className={analysis.tech.label.includes('BUY') ? 'neon-text-green' : analysis.tech.label.includes('SELL') ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.tech.label}</span>
+                                </div>
+                            </div>
+                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #f59e0b' }}>
+                                <div style={{ fontSize: '10px', color: '#f59e0b', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>FUNDAMENTAL BIAS</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>BULLISH SCORE</span>
+                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.fund.score > 60 ? '#00e676' : analysis.fund.score < 40 ? '#ff3d00' : '#fff' }}>{analysis.fund.score}%</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>NEWS BUZZ</span>
+                                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#fff' }}>{analysis.fund.buzz}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>SENTIMENT</span>
+                                    <span className={analysis.fund.label === 'BULLISH' ? 'neon-text-green' : analysis.fund.label === 'BEARISH' ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.fund.label}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="glass-panel chart-container" style={{ padding: '0', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                            <iframe src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=000000&studies=[]&theme=dark&style=3`} style={{ width: '100%', height: '100%', border: 'none' }} />
+                        </div>
+                    </div>
+
+                    {/* 4. RIGHT SIDEBAR (News Feed) */}
+                    <div className="glass-panel right-area">
+                        <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', marginBottom: '16px', letterSpacing: '1px' }}>LATEST {active.id} NEWS</div>
+                        <div className="scrollable-list">
+                            {newsFeed.length > 0 ? newsFeed.map((news, idx) => (
+                                <a key={idx} href={news.url || '#'} target="_blank" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                    <div style={{ background: 'rgba(0,0,0,0.3)', borderLeft: '3px solid #00e676', padding: '14px', borderRadius: '0 12px 12px 0', marginBottom: '12px', transition: '0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.3)'}>
+                                        <div style={{ fontSize: '12px', fontWeight: '600', lineHeight: '1.5', marginBottom: '6px' }}>{news.headline}</div>
+                                        {news.summary && <div style={{ fontSize: '10px', color: '#666', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', marginBottom: '8px' }}>{news.summary}</div>}
+                                        <div style={{ fontSize: '9px', color: '#00e676', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{news.source || 'Market Feed'}</div>
+                                    </div>
+                                </a>
+                            )) : (
+                                <div style={{ fontSize: '12px', color: '#555', fontStyle: 'italic', textAlign: 'center', padding: '40px 0' }}>Fetching latest headlines...</div>
+                            )}
+                        </div>
+                    </div>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TradeSyncPro />);
+    </script>
+</body>
+</html>
