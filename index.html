@@ -26,11 +26,9 @@
             min-height: 100vh;
         }
 
-        /* Custom Dark Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #555; }
 
         .glass-panel {
             background: rgba(15, 15, 15, 0.8);
@@ -41,21 +39,9 @@
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
         }
 
-        .tab-btn {
-            flex: 1; padding: 12px; border: none; background: transparent; 
-            color: #666; font-family: 'Inter', sans-serif; font-size: 11px; 
-            font-weight: 800; cursor: pointer; transition: 0.3s;
-            border-bottom: 2px solid transparent;
-        }
-        .tab-btn.active {
-            color: #fff; border-bottom: 2px solid #00e676; background: rgba(255, 255, 255, 0.03);
-        }
-
         .watchlist-item { transition: all 0.2s ease; border: 1px solid transparent; }
-        .watchlist-item:hover { background: rgba(255, 255, 255, 0.03) !important; border: 1px solid rgba(255, 255, 255, 0.1); transform: translateX(4px); }
-
-        .news-item { transition: all 0.2s ease; border-left: 3px solid transparent; }
-        .news-item:hover { background: rgba(255, 255, 255, 0.05); border-left: 3px solid #00e676; }
+        .watchlist-item:hover { background: rgba(255, 255, 255, 0.03); transform: translateX(4px); }
+        .active-item { border: 1px solid rgba(0, 230, 118, 0.3) !important; background: rgba(0, 230, 118, 0.05) !important; }
 
         .neon-text-green { color: #00e676; text-shadow: 0 0 10px rgba(0, 230, 118, 0.3); }
         .neon-text-red { color: #ff3d00; text-shadow: 0 0 10px rgba(255, 61, 0, 0.3); }
@@ -67,33 +53,31 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         function TradeSyncPro() {
-            // Default active asset is GOLD
-            const [active, setActive] = useState({ id: 'XAU', name: 'GOLD', tv: 'OANDA:XAUUSD', tag: 'PAXGUSDT', type: 'B', search: 'GOLD' });
-            const [viewMode, setViewMode] = useState('WATCHLIST'); // Tab Toggle
+            const [active, setActive] = useState({ id: 'XAU', name: 'GOLD', tv: 'OANDA:XAUUSD', tag: 'PAXGUSDT', type: 'B', search: 'GOLD', market: 'COMMODITIES' });
             
             const [list, setList] = useState([
-                { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD' },
-                { id: 'XAG', name: 'SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD', type: 'B', search: 'SILVER' },
-                { id: 'SPY', name: 'S&P 500', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500' },
-                { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX' },
-                { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA' },
-                { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO' }
+                { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
+                { id: 'XAG', name: 'SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD', type: 'B', search: 'SILVER', market: 'COMMODITIES' },
+                { id: 'SPY', name: 'S&P 500', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
+                { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX', market: 'FOREX' },
+                { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
+                { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
             ]);
 
             const [prices, setPrices] = useState({});
-            const [signals, setSignals] = useState({ scalping: 'SCANNING', day: 'SCANNING', swing: 'SCANNING' });
-            const [newsFeed, setNewsFeed] = useState([]);
-            const [isNewsLoading, setIsNewsLoading] = useState(false);
-            const [newTicker, setNewTicker] = useState('');
-            const [connectionStatus, setConnectionStatus] = useState('CONNECTING...');
+            const prevPrices = useRef({}); // PERFECT MEMORY FOR SIGNALS
+            const [signals, setSignals] = useState({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
             
-            // Your Personal API Key
+            const [newsFeed, setNewsFeed] = useState([]);
+            const [marketStatus, setMarketStatus] = useState('CHECKING...');
+            const [newTicker, setNewTicker] = useState('');
+            
             const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-            // --- DATA ENGINES ---
+            // --- DATA ENGINE ---
             const getPrice = async (item) => {
                 try {
                     if (item.type === 'B') {
@@ -110,190 +94,93 @@
                 } catch (e) { return null; }
             };
 
-            const getNews = async (searchQuery) => {
-                setIsNewsLoading(true);
+            const getNews = async (symbolData) => {
                 try {
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
-                    if (active.type === 'F' && active.id !== 'SPY') {
+                    if (symbolData.type === 'F' && symbolData.id !== 'SPY') {
                         const today = new Date().toISOString().split('T')[0];
                         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${active.id}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
+                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.id}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
                     }
-
                     const res = await fetch(endpoint);
-                    if (!res.ok) throw new Error("Limit");
                     const data = await res.json();
                     
-                    let filteredNews = data;
-                    if (active.type === 'B' || active.id === 'SPY') {
-                        filteredNews = data.filter(n => 
-                            n.headline.toUpperCase().includes(searchQuery.toUpperCase()) || 
-                            n.summary.toUpperCase().includes(searchQuery.toUpperCase())
-                        );
-                        if (filteredNews.length === 0) filteredNews = data.slice(0, 5);
+                    let filtered = data;
+                    if (symbolData.type === 'B' || symbolData.id === 'SPY') {
+                        filtered = data.filter(n => n.headline.toUpperCase().includes(symbolData.search) || n.summary.toUpperCase().includes(symbolData.search));
+                        if (filtered.length === 0) filtered = data;
                     }
-                    setNewsFeed(filteredNews.slice(0, 8));
+                    setNewsFeed(filtered.slice(0, 2)); // Show only top 2 news to save space
                 } catch (e) {
-                    setNewsFeed([{ headline: 'Market Feed is currently resting due to API rate limits. Check back in 60 seconds.', source: 'System', url: '#' }]);
+                    setNewsFeed([{ headline: 'News API throttled. Waiting for refresh.', source: 'System' }]);
                 }
-                setIsNewsLoading(false);
+            };
+
+            const checkMarketStatus = (item) => {
+                // Determine if the market is open based on the asset type
+                const now = new Date();
+                const day = now.getUTCDay();
+                const hour = now.getUTCHours();
+                
+                if (item.market === 'CRYPTO') return { text: 'MARKET LIVE 24/7', color: '#00e676' };
+                if (item.market === 'FOREX' || item.market === 'COMMODITIES') {
+                    if (day === 6 || (day === 5 && hour >= 21) || (day === 0 && hour < 21)) return { text: 'MARKET CLOSED (WEEKEND)', color: '#ff3d00' };
+                    return { text: 'MARKET LIVE', color: '#00e676' };
+                }
+                if (item.market === 'US EQUITIES') {
+                    // NYSE: 14:30 to 21:00 UTC
+                    if (day === 0 || day === 6) return { text: 'MARKET CLOSED (WEEKEND)', color: '#ff3d00' };
+                    if (hour >= 13 && hour < 21) return { text: 'MARKET OPEN', color: '#00e676' };
+                    return { text: 'AFTER-HOURS / CLOSED', color: '#f59e0b' };
+                }
+                return { text: 'LIVE FEED', color: '#00e676' };
             };
 
             const refreshAll = async () => {
-                setConnectionStatus('SYNCING DATA...');
-                let allSuccess = true;
                 const newPrices = {};
-                
                 for (const item of list) { 
                     const p = await getPrice(item);
-                    if (p !== null) {
-                        newPrices[item.id] = p;
-                    } else {
-                        allSuccess = false;
-                    }
+                    if (p !== null) newPrices[item.id] = p;
                 }
 
-                // Price Memory Update
                 setPrices(prev => {
-                    const updated = { ...prev };
-                    Object.keys(newPrices).forEach(key => { updated[key] = newPrices[key]; });
-                    return updated;
-                });
+                    const current = { ...prev };
+                    
+                    // TRUE LOGIC FOR SIGNALS
+                    const activeNew = newPrices[active.id];
+                    const activeOld = prevPrices.current[active.id];
 
-                // Signal AI Update
-                setPrices(currentPrices => {
-                    const currentActivePrice = newPrices[active.id] || currentPrices[active.id];
-                    if (currentActivePrice) {
+                    if (activeNew && activeOld) {
+                        const diff = activeNew - activeOld;
+                        const pctChange = (diff / activeOld) * 100;
+                        
                         setSignals({
-                            scalping: Math.random() > 0.5 ? 'BUY SCALP' : 'SELL SCALP',
-                            day: 'MOMENTUM ACTIVE',
-                            swing: 'HOLDING'
+                            scalping: diff > 0 ? 'BUY TICK' : diff < 0 ? 'SELL TICK' : 'NO CHANGE',
+                            day: pctChange > 0.05 ? 'STRONG BUY' : pctChange < -0.05 ? 'STRONG SELL' : 'NEUTRAL TREND',
+                            swing: activeNew > activeOld ? 'HOLD LONG' : activeNew < activeOld ? 'HOLD SHORT' : 'MONITORING'
                         });
                     }
-                    return currentPrices;
-                });
 
-                setConnectionStatus(allSuccess ? 'LIVE' : 'API THROTTLED - USING MEMORY');
+                    // Save to refs and state
+                    Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
+                    prevPrices.current = current; 
+                    return current;
+                });
             };
 
-            // --- AUTO-RUN LIFECYCLE ---
+            // --- LIFECYCLES ---
             useEffect(() => {
+                getNews(active);
+                setMarketStatus(checkMarketStatus(active));
                 refreshAll();
-                getNews(active.search || active.id);
-                // Safe 20-second interval to avoid Finnhub bans
-                const timer = setInterval(refreshAll, 20000);
+            }, [active.id]); // Fetch news instantly when switching symbols
+
+            useEffect(() => {
+                const timer = setInterval(() => {
+                    refreshAll();
+                    setMarketStatus(checkMarketStatus(active)); // Update status
+                }, 15000); // 15-second tick rate
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // --- RENDER DASHBOARD ---
-            return (
-                <div className="glass-panel" style={{ width: '100%', maxWidth: '420px', padding: '24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-                    
-                    {/* Header Bar */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                        <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '-0.5px' }}>
-                            TradeSync<span style={{ color: '#00e676' }}>.Pro</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '4px 10px', borderRadius: '20px' }}>
-                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: connectionStatus === 'LIVE' ? '#00e676' : '#f59e0b', boxShadow: `0 0 8px ${connectionStatus === 'LIVE' ? '#00e676' : '#f59e0b'}` }}></div>
-                            <span style={{ fontSize: '8px', color: '#888', fontWeight: '800', letterSpacing: '1px' }}>{connectionStatus}</span>
-                        </div>
-                    </div>
-
-                    {/* Active Asset Showcase */}
-                    <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                        <div style={{ fontSize: '12px', color: '#888', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                            {active.name} / USD
-                        </div>
-                        <div className="number-font" style={{ fontSize: '46px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
-                            ${prices[active.id] ? prices[active.id].toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'SCANNING'}
-                        </div>
-                    </div>
-
-                    {/* Strategy Pills */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '24px' }}>
-                        {Object.entries(signals).map(([k, v]) => {
-                            const isBuy = v.includes('BUY') || v.includes('BULL');
-                            const isSell = v.includes('SELL') || v.includes('BEAR');
-                            return (
-                                <div key={k} style={{ 
-                                    flex: 1, 
-                                    background: isBuy ? 'rgba(0, 230, 118, 0.1)' : isSell ? 'rgba(255, 61, 0, 0.1)' : 'rgba(255, 255, 255, 0.05)', 
-                                    border: `1px solid ${isBuy ? 'rgba(0, 230, 118, 0.3)' : isSell ? 'rgba(255, 61, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
-                                    padding: '10px 4px', 
-                                    borderRadius: '12px', 
-                                    textAlign: 'center' 
-                                }}>
-                                    <div style={{ fontSize: '9px', color: '#888', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>{k}</div>
-                                    <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '800' }}>{v}</div>
-                                </div>
-                            )
-                        })}
-                    </div>
-
-                    {/* Tab Controller */}
-                    <div style={{ display: 'flex', marginBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        <button className={`tab-btn ${viewMode === 'WATCHLIST' ? 'active' : ''}`} onClick={() => setViewMode('WATCHLIST')}>MARKET DATA</button>
-                        <button className={`tab-btn ${viewMode === 'NEWS' ? 'active' : ''}`} onClick={() => setViewMode('NEWS')}>NEWS FEED</button>
-                    </div>
-
-                    {/* DYNAMIC CONTENT CONTAINER */}
-                    <div style={{ flex: 1, minHeight: '260px' }}>
-                        
-                        {/* TAB 1: WATCHLIST & CHART */}
-                        {viewMode === 'WATCHLIST' && (
-                            <>
-                                <div style={{ height: '200px', width: '100%', marginBottom: '16px', borderRadius: '16px', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.08)', background: '#0a0a0a' }}>
-                                    <iframe src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=000000&studies=[]&theme=dark&style=3&timezone=Asia%2FAmman`} style={{ width: '100%', height: '100%', border: 'none' }} />
-                                </div>
-                                <div style={{ maxHeight: '160px', overflowY: 'auto', paddingRight: '4px', marginBottom: '15px' }}>
-                                    {list.map(item => (
-                                        <div key={item.id} className="watchlist-item" onClick={() => setActive(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '14px', marginBottom: '8px', cursor: 'pointer', border: active.id === item.id ? '1px solid rgba(0, 230, 118, 0.3)' : '1px solid transparent' }}>
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '14px', fontWeight: '800' }}>{item.id}</span>
-                                                <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
-                                            </div>
-                                            <span className="number-font" style={{ fontSize: '14px', color: prices[item.id] > 0 ? '#fff' : '#444', fontWeight: '700' }}>
-                                                {prices[item.id] ? `$${prices[item.id].toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '---'}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <input value={newTicker} onChange={(e) => setNewTicker(e.target.value)} placeholder="Add ticker (e.g. AAPL)" style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '13px', fontWeight: '600' }} />
-                                    <button onClick={() => { if(newTicker) { setList([...list, { id: newTicker.toUpperCase(), name: newTicker.toUpperCase(), tag: newTicker.toUpperCase(), tv: newTicker.toUpperCase(), type: 'F', search: newTicker.toUpperCase() }]); setNewTicker(''); }}} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
-                                </div>
-                            </>
-                        )}
-
-                        {/* TAB 2: NEWS FEED */}
-                        {viewMode === 'NEWS' && (
-                            <div style={{ maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
-                                {isNewsLoading ? (
-                                    <div style={{ textAlign: 'center', color: '#888', padding: '40px 0', fontSize: '12px', fontWeight: 'bold', letterSpacing: '1px' }}>SCANNING GLOBAL HEADLINES...</div>
-                                ) : newsFeed.length > 0 ? (
-                                    newsFeed.map((news, idx) => (
-                                        <a key={idx} href={news.url} target="_blank" style={{ textDecoration: 'none', color: 'inherit' }}>
-                                            <div className="news-item" style={{ background: 'rgba(0,0,0,0.4)', padding: '16px', borderRadius: '12px', marginBottom: '10px' }}>
-                                                <div style={{ fontSize: '9px', color: '#00e676', fontWeight: '800', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{news.source}</div>
-                                                <div style={{ fontSize: '13px', fontWeight: '600', lineHeight: '1.4', marginBottom: '8px' }}>{news.headline}</div>
-                                                {news.summary && <div style={{ fontSize: '11px', color: '#666', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{news.summary}</div>}
-                                            </div>
-                                        </a>
-                                    ))
-                                ) : (
-                                    <div style={{ textAlign: 'center', color: '#888', padding: '40px 0', fontSize: '12px', fontWeight: 'bold' }}>NO RECENT NEWS FOUND FOR {active.id}</div>
-                                )}
-                            </div>
-                        )}
-
-                    </div>
-                </div>
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<TradeSyncPro />);
-    </script>
-</body>
-</html>
+            // --- UI
