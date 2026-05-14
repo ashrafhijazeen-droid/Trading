@@ -86,17 +86,36 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // Default Institutional List
+        const DEFAULT_WATCHLIST = [
+            { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
+            { id: 'XAG', name: 'SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD', type: 'B', search: 'SILVER', market: 'COMMODITIES' },
+            { id: 'SPY', name: 'S&P 500', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
+            { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX', market: 'FOREX' },
+            { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
+            { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
+        ];
+
         function TradeSyncPro() {
-            const [active, setActive] = useState({ id: 'XAU', name: 'GOLD', tv: 'OANDA:XAUUSD', tag: 'PAXGUSDT', type: 'B', search: 'GOLD', market: 'COMMODITIES' });
+            const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            const [list, setList] = useState([
-                { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
-                { id: 'XAG', name: 'SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD', type: 'B', search: 'SILVER', market: 'COMMODITIES' },
-                { id: 'SPY', name: 'S&P 500', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
-                { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX', market: 'FOREX' },
-                { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
-                { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
-            ]);
+            // --- NEW: LOCAL STORAGE INITIALIZATION ---
+            const [list, setList] = useState(() => {
+                const savedList = localStorage.getItem('tradeSyncWatchlist');
+                if (savedList) {
+                    try {
+                        return JSON.parse(savedList);
+                    } catch (e) {
+                        return DEFAULT_WATCHLIST;
+                    }
+                }
+                return DEFAULT_WATCHLIST;
+            });
+
+            // --- NEW: AUTO-SAVE TO LOCAL STORAGE ---
+            useEffect(() => {
+                localStorage.setItem('tradeSyncWatchlist', JSON.stringify(list));
+            }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -192,28 +211,17 @@
                         currentScalp = dailyPct > 0 ? 'MICRO UPTREND' : 'MICRO DOWNTREND';
                     }
 
-                    // 1. Core Logic Engine
                     const dayLogic = dailyPct > 0.5 ? 'STRONG BUY' : dailyPct < -0.5 ? 'STRONG SELL' : dailyPct > 0 ? 'BULLISH BIAS' : 'BEARISH BIAS';
                     const swingLogic = dailyPct > 1.5 ? 'HOLD LONG' : dailyPct < -1.5 ? 'HOLD SHORT' : dailyPct > 0 ? 'UPTREND' : 'DOWNTREND';
 
-                    const newGeneratedSignals = {
-                        scalping: currentScalp,
-                        day: dayLogic,
-                        swing: swingLogic
-                    };
-
+                    const newGeneratedSignals = { scalping: currentScalp, day: dayLogic, swing: swingLogic };
                     setSignals(newGeneratedSignals);
                     prevSignals.current = newGeneratedSignals; 
 
-                    // 2. PERFECTLY MATCHED SYNTHESIS ENGINE
-                    // RSI maps directly to Day percentage to match the 'Day' signal intensity
                     const rsiCalc = Math.min(Math.max(50 + (dailyPct * 12), 15), 85).toFixed(1);
-                    
-                    // Technical Consensus uses the EXACT same string as the Day Logic
                     const techLabel = dayLogic; 
                     const techTrend = dailyPct >= 0 ? 'UPWARD' : 'DOWNWARD';
                     
-                    // Fundamental Score maps to the Swing intensity
                     const fundScore = Math.min(Math.max(50 + (dailyPct * 15), 10), 90).toFixed(0);
                     const fundLabel = Math.abs(dailyPct) < 0.1 ? 'MIXED' : dailyPct > 0 ? 'BULLISH' : 'BEARISH';
                     const buzzLevel = Math.abs(dailyPct) > 1.5 ? 'EXTREME' : Math.abs(dailyPct) > 0.5 ? 'HIGH' : 'AVERAGE';
@@ -246,6 +254,27 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
+            // Add Ticker Function with Duplicate Check
+            const handleAddTicker = () => {
+                if(newTicker) { 
+                    const upperTicker = newTicker.toUpperCase().trim();
+                    // Check if ticker already exists
+                    if (!list.find(item => item.id === upperTicker)) {
+                        const newItem = { 
+                            id: upperTicker, 
+                            name: upperTicker, 
+                            tag: upperTicker, 
+                            tv: upperTicker, 
+                            type: 'F', 
+                            search: upperTicker, 
+                            market: 'USER ADDED' 
+                        };
+                        setList([...list, newItem]); 
+                    }
+                    setNewTicker(''); 
+                }
+            };
+
             return (
                 <div className="dashboard-layout">
                     
@@ -262,7 +291,10 @@
 
                     {/* 2. LEFT SIDEBAR (Watchlist) */}
                     <div className="glass-panel left-area">
-                        <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', marginBottom: '12px', letterSpacing: '1px' }}>WATCHLIST</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', letterSpacing: '1px' }}>WATCHLIST</div>
+                            <div style={{ fontSize: '9px', color: '#444' }}>AUTO-SAVED</div>
+                        </div>
                         
                         <div className="scrollable-list" style={{ marginBottom: '16px' }}>
                             {list.map(item => (
@@ -286,8 +318,14 @@
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <input value={newTicker} onChange={(e) => setNewTicker(e.target.value)} placeholder="Add ticker (e.g. AAPL)" style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} />
-                            <button onClick={() => { if(newTicker) { setList([...list, { id: newTicker.toUpperCase(), name: newTicker.toUpperCase(), tag: newTicker.toUpperCase(), tv: newTicker.toUpperCase(), type: 'F', search: newTicker.toUpperCase(), market: 'USER ADDED' }]); setNewTicker(''); }}} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
+                            <input 
+                                value={newTicker} 
+                                onChange={(e) => setNewTicker(e.target.value)} 
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
+                                placeholder="Add ticker (e.g. MSFT)" 
+                                style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
+                            />
+                            <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
                         </div>
                     </div>
 
@@ -323,10 +361,8 @@
                             })}
                         </div>
 
-                        {/* DEEP ANALYSIS SECTION (Now synced perfectly to signals) */}
+                        {/* DEEP ANALYSIS SECTION */}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
-                            
-                            {/* Technicals */}
                             <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #00bfff' }}>
                                 <div style={{ fontSize: '10px', color: '#00bfff', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>TECHNICAL METRICS</div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -339,12 +375,9 @@
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                                     <span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>CONSENSUS</span>
-                                    {/* Matches Day Signal Color exactly */}
                                     <span className={analysis.tech.label.includes('BUY') ? 'neon-text-green' : analysis.tech.label.includes('SELL') ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.tech.label}</span>
                                 </div>
                             </div>
-
-                            {/* Fundamentals */}
                             <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #f59e0b' }}>
                                 <div style={{ fontSize: '10px', color: '#f59e0b', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>FUNDAMENTAL BIAS</div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -360,7 +393,6 @@
                                     <span className={analysis.fund.label === 'BULLISH' ? 'neon-text-green' : analysis.fund.label === 'BEARISH' ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.fund.label}</span>
                                 </div>
                             </div>
-
                         </div>
 
                         <div className="glass-panel chart-container" style={{ padding: '0', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
