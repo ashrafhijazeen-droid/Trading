@@ -12,103 +12,97 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
         function TradeSyncPro() {
             const [input, setInput] = useState('XAU');
-            const [mainAsset, setMainAsset] = useState({ symbol: 'XAU', price: 0, prev: 0 });
+            const [mainAsset, setMainAsset] = useState({ symbol: 'XAU', price: 0, lastPrice: 0 });
             const [watchlist, setWatchlist] = useState([
-                { id: 'XAU', name: 'GOLD', price: 0 },
-                { id: 'XAG', name: 'SILVER', price: 0 },
-                { id: 'EUR', name: 'EURUSD', price: 0 },
-                { id: 'TSLA', name: 'TESLA', price: 0 },
-                { id: 'BTC', name: 'BITCOIN', price: 0 }
+                { id: 'XAU', name: 'GOLD', price: 0, api: 'B', tag: 'PAXGUSDT' },
+                { id: 'XAG', name: 'SILVER', price: 0, api: 'B', tag: 'XAGUSDT' },
+                { id: 'EUR', name: 'EUR/USD', price: 0, api: 'B', tag: 'EURUSDT' },
+                { id: 'GBP', name: 'GBP/USD', price: 0, api: 'B', tag: 'GBPUSDT' },
+                { id: 'JPY', name: 'USD/JPY', price: 0, api: 'B', tag: 'USDJPY' },
+                { id: 'BTC', name: 'BITCOIN', price: 0, api: 'B', tag: 'BTCUSDT' },
+                { id: 'TSLA', name: 'TESLA', price: 0, api: 'F', tag: 'TSLA' },
+                { id: 'AAPL', name: 'APPLE', price: 0, api: 'F', tag: 'AAPL' },
+                { id: 'NVDA', name: 'NVIDIA', price: 0, api: 'F', tag: 'NVDA' }
             ]);
-            const [signals, setSignals] = useState({ scalping: 'NEUTRAL', day: 'NEUTRAL', swing: 'NEUTRAL' });
+            const [signals, setSignals] = useState({ scalping: 'STABLE', day: 'NEUTRAL', swing: 'NEUTRAL' });
             
-            const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
+            const FIN_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-            // Helper to fetch from Binance or Finnhub
-            const getPrice = async (sym) => {
+            const fetchSingle = async (item) => {
                 try {
-                    let binanceSym = sym === 'XAU' ? 'PAXGUSDT' : sym === 'XAG' ? 'XAGUSDT' : sym === 'EUR' ? 'EURUSDT' : sym + 'USDT';
-                    const bRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${binanceSym}`);
-                    const bData = await bRes.json();
-                    if (bData.price) return parseFloat(bData.price);
-
-                    const fRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${API_KEY}`);
-                    const fData = await fRes.json();
-                    return fData.c || 0;
+                    if (item.api === 'B') {
+                        const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${item.tag}`);
+                        const d = await r.json();
+                        return parseFloat(d.price) || 0;
+                    } else {
+                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FIN_KEY}`);
+                        const d = await r.json();
+                        return d.c || 0;
+                    }
                 } catch (e) { return 0; }
             };
 
-            const updateDashboard = async () => {
-                // Update Main Search
-                const newPrice = await getPrice(mainAsset.symbol);
-                if (newPrice > 0) {
-                    const diff = newPrice - mainAsset.prev;
-                    setMainAsset(prev => ({ ...prev, price: newPrice, prev: newPrice }));
-                    
-                    // Logic for recommendations
-                    setSignals({
-                        scalping: diff > 0.01 ? 'BUY SCALP' : diff < -0.01 ? 'SELL SCALP' : 'WAITing',
-                        day: newPrice > mainAsset.price ? 'UPTREND' : 'DOWNTREND',
-                        swing: 'HOLDING POSITION'
-                    });
-                }
-
+            const updatePrices = async () => {
                 // Update Watchlist
-                const updatedWatch = await Promise.all(watchlist.map(async (item) => {
-                    const p = await getPrice(item.id);
+                const updated = await Promise.all(watchlist.map(async (item) => {
+                    const p = await fetchSingle(item);
                     return { ...item, price: p };
                 }));
-                setWatchlist(updatedWatch);
+                setWatchlist(updated);
+
+                // Update Main Signal Logic
+                const current = updated.find(x => x.id === mainAsset.symbol);
+                if (current && current.price > 0) {
+                    const diff = current.price - mainAsset.lastPrice;
+                    
+                    setSignals({
+                        scalping: diff > 0 ? 'BULLISH TICK' : diff < 0 ? 'BEARISH TICK' : 'WAITING',
+                        day: diff > (current.price * 0.0001) ? 'BUY PRESSURE' : diff < -(current.price * 0.0001) ? 'SELL PRESSURE' : 'CONSOLIDATING',
+                        swing: 'MONITORING TREND'
+                    });
+                    
+                    setMainAsset(prev => ({ ...prev, price: current.price, lastPrice: current.price }));
+                }
             };
 
             useEffect(() => {
-                updateDashboard();
-                const timer = setInterval(updateDashboard, 15000); // 15s updates
+                updatePrices();
+                const timer = setInterval(updatePrices, 10000); 
                 return () => clearInterval(timer);
             }, [mainAsset.symbol]);
 
-            const handleSearch = (e) => {
-                if (e.key === 'Enter') {
-                    setMainAsset({ symbol: input.toUpperCase(), price: 0, prev: 0 });
-                }
-            };
-
             return (
-                <div style={{ width: '350px', background: '#0a0a0a', padding: '25px', borderRadius: '30px', border: '1px solid #222' }}>
-                    <div style={{ fontSize: '10px', color: '#444', marginBottom: '15px', textAlign: 'center' }}>AI TRADING ENGINE</div>
+                <div style={{ width: '360px', background: '#0a0a0a', padding: '20px', borderRadius: '25px', border: '1px solid #1a1a1a' }}>
+                    <div style={{ fontSize: '10px', color: '#444', textAlign: 'center', marginBottom: '15px', letterSpacing: '2px' }}>AI MARKET RADAR</div>
                     
-                    <input 
-                        value={input} 
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleSearch}
-                        style={{ background: '#000', color: '#00ff88', border: '1px solid #333', width: '100%', padding: '12px', borderRadius: '12px', boxSizing: 'border-box', textAlign: 'center', fontWeight: 'bold', outline: 'none' }}
-                        placeholder="SEARCH (XAU, BTC, EUR)"
-                    />
-
-                    <div style={{ margin: '20px 0', textAlign: 'center' }}>
-                        <div style={{ fontSize: '45px', fontWeight: '900' }}>${mainAsset.price.toLocaleString()}</div>
-                        <div style={{ fontSize: '9px', color: '#00ff88' }}>{mainAsset.symbol} LIVE SIGNAL</div>
+                    <div style={{ background: '#111', padding: '20px', borderRadius: '20px', textAlign: 'center', border: '1px solid #222', marginBottom: '20px' }}>
+                        <div style={{ fontSize: '12px', color: '#00ff88', fontWeight: 'bold', marginBottom: '5px' }}>{mainAsset.symbol} ANALYSIS</div>
+                        <div style={{ fontSize: '42px', fontWeight: '900', letterSpacing: '-2px' }}>
+                            {mainAsset.price > 0 ? `$${mainAsset.price.toLocaleString(undefined, {minimumFractionDigits: 2})}` : '---'}
+                        </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px', marginBottom: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '25px' }}>
                         {Object.entries(signals).map(([k, v]) => (
-                            <div key={k} style={{ background: '#111', padding: '8px', borderRadius: '8px', textAlign: 'center', border: '1px solid #222' }}>
-                                <div style={{ fontSize: '7px', color: '#555' }}>{k}</div>
-                                <div style={{ fontSize: '9px', fontWeight: 'bold', color: v.includes('BUY') ? '#00ff88' : v.includes('SELL') ? '#ff4444' : '#fff' }}>{v}</div>
+                            <div key={k} style={{ background: '#000', padding: '10px 5px', borderRadius: '10px', textAlign: 'center', border: '1px solid #222' }}>
+                                <div style={{ fontSize: '7px', color: '#555', marginBottom: '5px' }}>{k.toUpperCase()}</div>
+                                <div style={{ fontSize: '9px', fontWeight: '900', color: v.includes('BUY') || v.includes('BULL') ? '#00ff88' : v.includes('SELL') || v.includes('BEAR') ? '#ff4444' : '#666' }}>{v}</div>
                             </div>
                         ))}
                     </div>
 
-                    <div style={{ borderTop: '1px solid #222', paddingTop: '15px' }}>
-                        <div style={{ fontSize: '9px', color: '#444', marginBottom: '10px' }}>ASSET WATCHLIST</div>
+                    <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px' }}>
+                        <div style={{ fontSize: '9px', color: '#333', marginBottom: '10px' }}>LIVE ASSET LIST</div>
                         {watchlist.map(item => (
-                            <div key={item.id} onClick={() => {setMainAsset({symbol: item.id, price:0, prev:0}); setInput(item.id);}} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#000', border: '1px solid #111', borderRadius: '8px', marginBottom: '5px', cursor: 'pointer' }}>
-                                <span style={{ fontSize: '11px', fontWeight: 'bold' }}>{item.name}</span>
-                                <span style={{ fontSize: '11px', color: '#00ff88' }}>${item.price.toLocaleString()}</span>
+                            <div key={item.id} onClick={() => setMainAsset({symbol: item.id, price: 0, lastPrice: mainAsset.price})} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: '#000', border: '1px solid #111', borderRadius: '12px', marginBottom: '6px', cursor: 'pointer', transition: '0.2s' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{item.name}</span>
+                                <span style={{ fontSize: '12px', color: item.price > 0 ? '#00ff88' : '#444', fontWeight: 'bold' }}>
+                                    {item.price > 0 ? `$${item.price.toLocaleString()}` : 'LOADING...'}
+                                </span>
                             </div>
                         ))}
                     </div>
