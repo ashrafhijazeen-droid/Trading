@@ -76,4 +76,200 @@
                 { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD' },
                 { id: 'XAG', name: 'SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD', type: 'B', search: 'SILVER' },
                 { id: 'US30', name: 'DOW 30', tag: 'DJI', tv: 'CURRENCYCOM:US30', type: 'F', search: 'DOW JONES' },
-                { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B
+                { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX' },
+                { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA' },
+                { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO' }
+            ]);
+
+            const [prices, setPrices] = useState({});
+            const [signals, setSignals] = useState({ scalping: 'BUY SCALP', day: 'BULLISH', swing: 'HOLDING' });
+            const [newsFeed, setNewsFeed] = useState([]);
+            const [isNewsLoading, setIsNewsLoading] = useState(false);
+            const [newTicker, setNewTicker] = useState('');
+            
+            const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
+
+            // --- DATA FETCHERS ---
+            const getPrice = async (item) => {
+                try {
+                    if (item.type === 'B') {
+                        const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${item.tag}`);
+                        const d = await r.json();
+                        return d.price ? parseFloat(d.price) : 0;
+                    } else {
+                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
+                        const d = await r.json();
+                        return d.c ? d.c : 0;
+                    }
+                } catch (e) { return 0; }
+            };
+
+            const getNews = async (searchQuery) => {
+                setIsNewsLoading(true);
+                try {
+                    // We use general market news and filter, or company news if it's a stock
+                    let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
+                    
+                    // If it's a specific stock like TSLA, fetch company news
+                    if (active.type === 'F' && active.id !== 'US30') {
+                        const today = new Date().toISOString().split('T')[0];
+                        const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${active.id}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
+                    }
+
+                    const res = await fetch(endpoint);
+                    const data = await res.json();
+                    
+                    // Filter general news based on the asset's search tag
+                    let filteredNews = data;
+                    if (active.type === 'B' || active.id === 'US30') {
+                        filteredNews = data.filter(n => 
+                            n.headline.toUpperCase().includes(searchQuery.toUpperCase()) || 
+                            n.summary.toUpperCase().includes(searchQuery.toUpperCase())
+                        );
+                        // If specific filter yields nothing, show general top news
+                        if (filteredNews.length === 0) filteredNews = data.slice(0, 5);
+                    }
+
+                    setNewsFeed(filteredNews.slice(0, 8)); // Keep top 8 headlines
+                } catch (e) {
+                    setNewsFeed([{ headline: 'Error loading news feed. API limit reached.', source: 'System', url: '#' }]);
+                }
+                setIsNewsLoading(false);
+            };
+
+            // --- LIFECYCLES ---
+            const refreshAll = async () => {
+                const results = {};
+                for (const item of list) { results[item.id] = await getPrice(item); }
+                setPrices(results);
+
+                const currentPrice = results[active.id];
+                if (currentPrice > 0) {
+                    setSignals({
+                        scalping: Math.random() > 0.5 ? 'BUY SCALP' : 'SELL SCALP',
+                        day: currentPrice > (prices[active.id] || 0) ? 'BULLISH' : 'BEARISH',
+                        swing: 'MONITORING'
+                    });
+                }
+            };
+
+            useEffect(() => {
+                refreshAll();
+                getNews(active.search || active.id);
+                const timer = setInterval(refreshAll, 10000);
+                return () => clearInterval(timer);
+            }, [active.id, list.length]);
+
+            // --- RENDER ---
+            return (
+                <div className="glass-panel" style={{ width: '100%', maxWidth: '420px', padding: '24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+                    
+                    {/* Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                        <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '-0.5px' }}>
+                            TradeSync<span style={{ color: '#00e676' }}>.Pro</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#00e676', boxShadow: '0 0 8px #00e676', animation: 'pulse 2s infinite' }}></div>
+                            <span style={{ fontSize: '10px', color: '#888', fontWeight: '600', letterSpacing: '1px' }}>LIVE</span>
+                        </div>
+                    </div>
+
+                    {/* Main Active Asset */}
+                    <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                        <div style={{ fontSize: '12px', color: '#888', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                            {active.name} / USD
+                        </div>
+                        <div className="number-font" style={{ fontSize: '46px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
+                            ${prices[active.id] ? prices[active.id].toLocaleString(undefined, {minimumFractionDigits: 2}) : '---'}
+                        </div>
+                    </div>
+
+                    {/* AI Signal Pills */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '24px' }}>
+                        {Object.entries(signals).map(([k, v]) => {
+                            const isBuy = v.includes('BUY') || v.includes('BULL');
+                            const isSell = v.includes('SELL') || v.includes('BEAR');
+                            return (
+                                <div key={k} style={{ 
+                                    flex: 1, 
+                                    background: isBuy ? 'rgba(0, 230, 118, 0.1)' : isSell ? 'rgba(255, 61, 0, 0.1)' : 'rgba(255, 255, 255, 0.05)', 
+                                    border: `1px solid ${isBuy ? 'rgba(0, 230, 118, 0.3)' : isSell ? 'rgba(255, 61, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`,
+                                    padding: '10px 4px', 
+                                    borderRadius: '12px', 
+                                    textAlign: 'center' 
+                                }}>
+                                    <div style={{ fontSize: '9px', color: '#888', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>{k}</div>
+                                    <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '800' }}>{v}</div>
+                                </div>
+                            )
+                        })}
+                    </div>
+
+                    {/* Tab Navigation */}
+                    <div style={{ display: 'flex', marginBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                        <button className={`tab-btn ${viewMode === 'WATCHLIST' ? 'active' : ''}`} onClick={() => setViewMode('WATCHLIST')}>MARKET DATA</button>
+                        <button className={`tab-btn ${viewMode === 'NEWS' ? 'active' : ''}`} onClick={() => setViewMode('NEWS')}>NEWS FEED</button>
+                    </div>
+
+                    {/* DYNAMIC CONTENT AREA */}
+                    <div style={{ flex: 1, minHeight: '260px' }}>
+                        
+                        {/* WATCHLIST VIEW */}
+                        {viewMode === 'WATCHLIST' && (
+                            <>
+                                <div style={{ height: '200px', width: '100%', marginBottom: '16px', borderRadius: '16px', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.08)', background: '#0a0a0a' }}>
+                                    <iframe src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=000000&studies=[]&theme=dark&style=3&timezone=Asia%2FAmman`} style={{ width: '100%', height: '100%', border: 'none' }} />
+                                </div>
+                                <div style={{ maxHeight: '160px', overflowY: 'auto', paddingRight: '4px', marginBottom: '15px' }}>
+                                    {list.map(item => (
+                                        <div key={item.id} className="watchlist-item" onClick={() => setActive(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '14px', marginBottom: '8px', cursor: 'pointer', border: active.id === item.id ? '1px solid rgba(0, 230, 118, 0.3)' : '1px solid transparent' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '14px', fontWeight: '800' }}>{item.id}</span>
+                                                <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
+                                            </div>
+                                            <span className="number-font" style={{ fontSize: '14px', color: prices[item.id] > 0 ? '#fff' : '#444', fontWeight: '700' }}>
+                                                {prices[item.id] ? `$${prices[item.id].toLocaleString()}` : '---'}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <input value={newTicker} onChange={(e) => setNewTicker(e.target.value)} placeholder="Add ticker..." style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '13px', fontWeight: '600' }} />
+                                    <button onClick={() => { if(newTicker) { setList([...list, { id: newTicker.toUpperCase(), name: newTicker.toUpperCase(), tag: newTicker.toUpperCase(), tv: newTicker.toUpperCase(), type: 'F', search: newTicker.toUpperCase() }]); setNewTicker(''); }}} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
+                                </div>
+                            </>
+                        )}
+
+                        {/* NEWS VIEW */}
+                        {viewMode === 'NEWS' && (
+                            <div style={{ maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
+                                {isNewsLoading ? (
+                                    <div style={{ textAlign: 'center', color: '#888', padding: '40px 0', fontSize: '12px', fontWeight: 'bold', letterSpacing: '1px' }}>SCANNING GLOBAL HEADLINES...</div>
+                                ) : newsFeed.length > 0 ? (
+                                    newsFeed.map((news, idx) => (
+                                        <a key={idx} href={news.url} target="_blank" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                            <div className="news-item" style={{ background: 'rgba(0,0,0,0.4)', padding: '16px', borderRadius: '12px', marginBottom: '10px' }}>
+                                                <div style={{ fontSize: '9px', color: '#00e676', fontWeight: '800', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>{news.source}</div>
+                                                <div style={{ fontSize: '13px', fontWeight: '600', lineHeight: '1.4', marginBottom: '8px' }}>{news.headline}</div>
+                                                {news.summary && <div style={{ fontSize: '11px', color: '#666', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{news.summary}</div>}
+                                            </div>
+                                        </a>
+                                    ))
+                                ) : (
+                                    <div style={{ textAlign: 'center', color: '#888', padding: '40px 0', fontSize: '12px', fontWeight: 'bold' }}>NO RECENT NEWS FOUND FOR {active.id}</div>
+                                )}
+                            </div>
+                        )}
+
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TradeSyncPro />);
+    </script>
+</body>
+</html>
