@@ -15,26 +15,23 @@
         const { useState, useEffect } = React;
 
         function TradeSyncPro() {
-            const [input, setInput] = useState('XAU');
             const [mainAsset, setMainAsset] = useState({ symbol: 'XAU', price: 0, lastPrice: 0 });
+            const [newTicker, setNewTicker] = useState('');
             const [watchlist, setWatchlist] = useState([
-                { id: 'XAU', name: 'GOLD', price: 0, api: 'B', tag: 'PAXGUSDT' },
-                { id: 'XAG', name: 'SILVER', price: 0, api: 'B', tag: 'XAGUSDT' },
-                { id: 'EUR', name: 'EUR/USD', price: 0, api: 'B', tag: 'EURUSDT' },
-                { id: 'GBP', name: 'GBP/USD', price: 0, api: 'B', tag: 'GBPUSDT' },
-                { id: 'JPY', name: 'USD/JPY', price: 0, api: 'B', tag: 'USDJPY' },
-                { id: 'BTC', name: 'BITCOIN', price: 0, api: 'B', tag: 'BTCUSDT' },
-                { id: 'TSLA', name: 'TESLA', price: 0, api: 'F', tag: 'TSLA' },
-                { id: 'AAPL', name: 'APPLE', price: 0, api: 'F', tag: 'AAPL' },
-                { id: 'NVDA', name: 'NVIDIA', price: 0, api: 'F', tag: 'NVDA' }
+                { id: 'XAU', name: 'GOLD', price: 0, type: 'B', tag: 'PAXGUSDT' },
+                { id: 'XAG', name: 'SILVER', price: 0, type: 'B', tag: 'XAGUSDT' },
+                { id: 'EUR', name: 'EUR/USD', price: 0, type: 'B', tag: 'EURUSDT' },
+                { id: 'JPY', name: 'USD/JPY', price: 0, type: 'B', tag: 'USDJPY' },
+                { id: 'TSLA', name: 'TESLA', price: 0, type: 'F', tag: 'TSLA' },
+                { id: 'BTC', name: 'BITCOIN', price: 0, type: 'B', tag: 'BTCUSDT' }
             ]);
             const [signals, setSignals] = useState({ scalping: 'STABLE', day: 'NEUTRAL', swing: 'NEUTRAL' });
             
             const FIN_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-            const fetchSingle = async (item) => {
+            const fetchPrice = async (item) => {
                 try {
-                    if (item.api === 'B') {
+                    if (item.type === 'B') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${item.tag}`);
                         const d = await r.json();
                         return parseFloat(d.price) || 0;
@@ -46,65 +43,83 @@
                 } catch (e) { return 0; }
             };
 
-            const updatePrices = async () => {
-                // Update Watchlist
-                const updated = await Promise.all(watchlist.map(async (item) => {
-                    const p = await fetchSingle(item);
+            const addAsset = () => {
+                if (!newTicker) return;
+                const upper = newTicker.toUpperCase().trim();
+                const isForex = upper.length === 6;
+                const newItem = {
+                    id: upper,
+                    name: upper,
+                    price: 0,
+                    type: isForex ? 'B' : 'F',
+                    tag: isForex ? upper + 'USDT' : upper
+                };
+                setWatchlist([...watchlist, newItem]);
+                setNewTicker('');
+            };
+
+            const updateLoop = async () => {
+                const nextWatch = await Promise.all(watchlist.map(async (item) => {
+                    const p = await fetchPrice(item);
                     return { ...item, price: p };
                 }));
-                setWatchlist(updated);
+                setWatchlist(nextWatch);
 
-                // Update Main Signal Logic
-                const current = updated.find(x => x.id === mainAsset.symbol);
+                const current = nextWatch.find(x => x.id === mainAsset.symbol);
                 if (current && current.price > 0) {
                     const diff = current.price - mainAsset.lastPrice;
-                    
                     setSignals({
-                        scalping: diff > 0 ? 'BULLISH TICK' : diff < 0 ? 'BEARISH TICK' : 'WAITING',
-                        day: diff > (current.price * 0.0001) ? 'BUY PRESSURE' : diff < -(current.price * 0.0001) ? 'SELL PRESSURE' : 'CONSOLIDATING',
-                        swing: 'MONITORING TREND'
+                        scalping: diff > 0 ? 'BULLISH VOL' : diff < 0 ? 'BEARISH VOL' : 'WAITING',
+                        day: diff > (current.price * 0.0001) ? 'STRONG BUY' : diff < -(current.price * 0.0001) ? 'STRONG SELL' : 'NEUTRAL',
+                        swing: 'MONITORING'
                     });
-                    
                     setMainAsset(prev => ({ ...prev, price: current.price, lastPrice: current.price }));
                 }
             };
 
             useEffect(() => {
-                updatePrices();
-                const timer = setInterval(updatePrices, 10000); 
+                updateLoop();
+                const timer = setInterval(updateLoop, 10000);
                 return () => clearInterval(timer);
-            }, [mainAsset.symbol]);
+            }, [mainAsset.symbol, watchlist.length]);
 
             return (
                 <div style={{ width: '360px', background: '#0a0a0a', padding: '20px', borderRadius: '25px', border: '1px solid #1a1a1a' }}>
-                    <div style={{ fontSize: '10px', color: '#444', textAlign: 'center', marginBottom: '15px', letterSpacing: '2px' }}>AI MARKET RADAR</div>
-                    
-                    <div style={{ background: '#111', padding: '20px', borderRadius: '20px', textAlign: 'center', border: '1px solid #222', marginBottom: '20px' }}>
-                        <div style={{ fontSize: '12px', color: '#00ff88', fontWeight: 'bold', marginBottom: '5px' }}>{mainAsset.symbol} ANALYSIS</div>
-                        <div style={{ fontSize: '42px', fontWeight: '900', letterSpacing: '-2px' }}>
-                            {mainAsset.price > 0 ? `$${mainAsset.price.toLocaleString(undefined, {minimumFractionDigits: 2})}` : '---'}
+                    <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                        <div style={{ fontSize: '10px', color: '#00ff88', fontWeight: 'bold' }}>{mainAsset.symbol} ANALYSIS</div>
+                        <div style={{ fontSize: '42px', fontWeight: '900' }}>
+                            ${mainAsset.price > 0 ? mainAsset.price.toLocaleString(undefined, {minimumFractionDigits: 2}) : '---'}
                         </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '25px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
                         {Object.entries(signals).map(([k, v]) => (
-                            <div key={k} style={{ background: '#000', padding: '10px 5px', borderRadius: '10px', textAlign: 'center', border: '1px solid #222' }}>
-                                <div style={{ fontSize: '7px', color: '#555', marginBottom: '5px' }}>{k.toUpperCase()}</div>
-                                <div style={{ fontSize: '9px', fontWeight: '900', color: v.includes('BUY') || v.includes('BULL') ? '#00ff88' : v.includes('SELL') || v.includes('BEAR') ? '#ff4444' : '#666' }}>{v}</div>
+                            <div key={k} style={{ background: '#111', padding: '10px 5px', borderRadius: '10px', textAlign: 'center', border: '1px solid #222' }}>
+                                <div style={{ fontSize: '7px', color: '#555', marginBottom: '4px' }}>{k.toUpperCase()}</div>
+                                <div style={{ fontSize: '8px', fontWeight: '900', color: v.includes('BUY') || v.includes('BULL') ? '#00ff88' : v.includes('SELL') || v.includes('BEAR') ? '#ff4444' : '#666' }}>{v}</div>
                             </div>
                         ))}
                     </div>
 
-                    <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '5px' }}>
-                        <div style={{ fontSize: '9px', color: '#333', marginBottom: '10px' }}>LIVE ASSET LIST</div>
+                    <div style={{ maxHeight: '280px', overflowY: 'auto', marginBottom: '15px' }}>
                         {watchlist.map(item => (
-                            <div key={item.id} onClick={() => setMainAsset({symbol: item.id, price: 0, lastPrice: mainAsset.price})} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: '#000', border: '1px solid #111', borderRadius: '12px', marginBottom: '6px', cursor: 'pointer', transition: '0.2s' }}>
-                                <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{item.name}</span>
-                                <span style={{ fontSize: '12px', color: item.price > 0 ? '#00ff88' : '#444', fontWeight: 'bold' }}>
-                                    {item.price > 0 ? `$${item.price.toLocaleString()}` : 'LOADING...'}
+                            <div key={item.id} onClick={() => setMainAsset({symbol: item.id, price: 0, lastPrice: mainAsset.price})} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: '#000', border: '1px solid #111', borderRadius: '12px', marginBottom: '6px', cursor: 'pointer' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 'bold' }}>{item.name}</span>
+                                <span style={{ fontSize: '11px', color: item.price > 0 ? '#00ff88' : '#444' }}>
+                                    {item.price > 0 ? `$${item.price.toLocaleString()}` : 'SCANNING...'}
                                 </span>
                             </div>
                         ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '5px' }}>
+                        <input 
+                            value={newTicker} 
+                            onChange={(e) => setNewTicker(e.target.value)} 
+                            placeholder="ADD (e.g. US30, AAPL)"
+                            style={{ flex: 1, background: '#000', color: '#fff', border: '1px solid #333', padding: '10px', borderRadius: '10px', outline: 'none', fontSize: '10px' }}
+                        />
+                        <button onClick={addAsset} style={{ background: '#00ff88', border: 'none', padding: '10px 15px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>+</button>
                     </div>
                 </div>
             );
