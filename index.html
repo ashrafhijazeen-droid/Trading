@@ -259,4 +259,301 @@
             };
 
             const refreshAll = async () => {
-                update
+                updateGlobalSessions(); 
+
+                const newPrices = {};
+                for (const item of list) { 
+                    const data = await getMarketData(item);
+                    if (data !== null) newPrices[item.id] = data;
+                }
+
+                const activeNew = newPrices[active.id];
+                const activeOld = prevPrices.current[active.id];
+
+                if (activeNew) {
+                    const currentPrice = activeNew.c;
+                    const dailyPct = activeNew.dp; 
+                    
+                    let currentScalp = prevSignals.current.scalping; 
+                    if (activeOld && currentPrice > activeOld.c) {
+                        currentScalp = 'BUY TICK'; 
+                    } else if (activeOld && currentPrice < activeOld.c) {
+                        currentScalp = 'SELL TICK'; 
+                    } else if (currentScalp === 'ANALYZING' || currentScalp.includes('WAITING')) {
+                        currentScalp = dailyPct > 0 ? 'MICRO UPTREND' : 'MICRO DOWNTREND';
+                    }
+
+                    const dayLogic = dailyPct > 0.5 ? 'STRONG BUY' : dailyPct < -0.5 ? 'STRONG SELL' : dailyPct > 0 ? 'BULLISH BIAS' : 'BEARISH BIAS';
+                    const swingLogic = dailyPct > 1.5 ? 'HOLD LONG' : dailyPct < -1.5 ? 'HOLD SHORT' : dailyPct > 0 ? 'UPTREND' : 'DOWNTREND';
+
+                    const newGeneratedSignals = { scalping: currentScalp, day: dayLogic, swing: swingLogic };
+                    setSignals(newGeneratedSignals);
+                    prevSignals.current = newGeneratedSignals; 
+
+                    const rsiCalc = Math.min(Math.max(50 + (dailyPct * 12), 15), 85).toFixed(1);
+                    const techLabel = dayLogic; 
+                    const techTrend = dailyPct >= 0 ? 'UPWARD' : 'DOWNWARD';
+                    
+                    const fundScore = Math.min(Math.max(50 + (dailyPct * 15), 10), 90).toFixed(0);
+                    const fundLabel = Math.abs(dailyPct) < 0.1 ? 'MIXED' : dailyPct > 0 ? 'BULLISH' : 'BEARISH';
+                    const buzzLevel = Math.abs(dailyPct) > 1.5 ? 'EXTREME' : Math.abs(dailyPct) > 0.5 ? 'HIGH' : 'AVERAGE';
+
+                    setAnalysis({
+                        tech: { rsi: rsiCalc, label: techLabel, trend: techTrend },
+                        fund: { score: fundScore, label: fundLabel, buzz: buzzLevel }
+                    });
+
+                    // --- NEW: ALGORITHMIC TRADE SETUP CALCULATION ---
+                    // Creates a synthetic ATR (Average True Range) based on daily momentum (min 0.5%)
+                    const atrProxy = Math.max(Math.abs(dailyPct) / 100, 0.005); 
+                    let entryPrice, tpPrice, slPrice, setupType;
+
+                    if (dailyPct >= 0) {
+                        setupType = 'LONG SETUP';
+                        entryPrice = currentPrice * (1 - atrProxy * 0.1); // Enter on slight pullback
+                        tpPrice = entryPrice * (1 + atrProxy * 1.5); // 1.5x Reward
+                        slPrice = entryPrice * (1 - atrProxy * 1.0); // 1x Risk
+                    } else {
+                        setupType = 'SHORT SETUP';
+                        entryPrice = currentPrice * (1 + atrProxy * 0.1); // Enter on slight bounce
+                        tpPrice = entryPrice * (1 - atrProxy * 1.5); // 1.5x Reward
+                        slPrice = entryPrice * (1 + atrProxy * 1.0); // 1x Risk
+                    }
+
+                    // Format numbers neatly (max 5 decimals for Forex, 2 for Stocks)
+                    setTradeSetup({
+                        type: setupType,
+                        entry: entryPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
+                        tp: tpPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
+                        sl: slPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})
+                    });
+                }
+
+                setPrices(prev => {
+                    const current = { ...prev };
+                    Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
+                    prevPrices.current = current; 
+                    return current;
+                });
+            };
+
+            useEffect(() => {
+                getNews(active);
+                setMarketStatus(checkMarketStatus(active));
+                refreshAll();
+            }, [active.id]); 
+
+            useEffect(() => {
+                const timer = setInterval(() => {
+                    refreshAll();
+                    setMarketStatus(checkMarketStatus(active));
+                }, 15000); 
+                return () => clearInterval(timer);
+            }, [active.id, list.length]);
+
+            const handleAddTicker = () => {
+                if(newTicker) { 
+                    const upperTicker = newTicker.toUpperCase().trim();
+                    if (!list.find(item => item.id === upperTicker)) {
+                        const newItem = { 
+                            id: upperTicker, name: upperTicker, tag: upperTicker, 
+                            tv: upperTicker, type: 'F', search: upperTicker, market: 'USER ADDED' 
+                        };
+                        setList([...list, newItem]); 
+                    }
+                    setNewTicker(''); 
+                }
+            };
+
+            const handleRemoveTicker = (e, idToRemove) => {
+                e.stopPropagation(); 
+                const newList = list.filter(item => item.id !== idToRemove);
+                setList(newList);
+                if (active.id === idToRemove && newList.length > 0) {
+                    setActive(newList[0]);
+                }
+            };
+
+            return (
+                <div className="dashboard-layout">
+                    
+                    <div className="glass-panel header-area" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 25px' }}>
+                        <div style={{ fontSize: '20px', fontWeight: '900', letterSpacing: '-0.5px' }}>
+                            TradeSync<span style={{ color: '#00e676' }}>.Pro</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '8px 16px', borderRadius: '20px', border: `1px solid ${marketStatus.color}40` }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: marketStatus.color, boxShadow: `0 0 10px ${marketStatus.color}` }}></div>
+                            <span style={{ fontSize: '10px', color: marketStatus.color, fontWeight: '800', letterSpacing: '1px' }}>{marketStatus.text}</span>
+                        </div>
+                    </div>
+
+                    <div className="glass-panel banner-area" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: '10px 30px', padding: '12px 20px', background: 'rgba(0, 230, 118, 0.03)', border: '1px solid rgba(0, 230, 118, 0.15)' }}>
+                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#00e676', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                            🟢 LIVE: {sessionBanner.open}
+                        </div>
+                        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
+                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                            ⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}
+                        </div>
+                    </div>
+
+                    <div className="glass-panel left-area">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', letterSpacing: '1px' }}>WATCHLIST</div>
+                            <div style={{ fontSize: '9px', color: '#444' }}>AUTO-SAVED</div>
+                        </div>
+                        
+                        <div className="scrollable-list" style={{ marginBottom: '16px' }}>
+                            {list.map(item => (
+                                <div key={item.id} className={`watchlist-item ${active.id === item.id ? 'active-item' : ''}`} onClick={() => setActive(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', marginBottom: '8px', cursor: 'pointer' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: '14px', fontWeight: '800' }}>{item.id}</span>
+                                        <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                        <span className="number-font" style={{ fontSize: '14px', color: prices[item.id] ? '#fff' : '#444', fontWeight: '700' }}>
+                                            {prices[item.id] ? `$${prices[item.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})}` : '---'}
+                                        </span>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            {prices[item.id] && (
+                                                <span className="number-font" style={{ fontSize: '10px', color: prices[item.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
+                                                    {prices[item.id].dp > 0 ? '+' : ''}{prices[item.id].dp.toFixed(2)}%
+                                                </span>
+                                            )}
+                                            {list.length > 1 && (
+                                                <button className="delete-btn" onClick={(e) => handleRemoveTicker(e, item.id)}>✖</button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <input 
+                                value={newTicker} 
+                                onChange={(e) => setNewTicker(e.target.value)} 
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
+                                placeholder="Add ticker (e.g. MSFT)" 
+                                style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
+                            />
+                            <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
+                        </div>
+                    </div>
+
+                    <div className="main-area">
+                        <div className="glass-panel" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '12px', color: '#888', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                                {active.name} / USD
+                            </div>
+                            <div className="number-font" style={{ fontSize: '56px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
+                                ${prices[active.id] ? prices[active.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}) : '---'}
+                            </div>
+                            <div className="number-font" style={{ fontSize: '14px', fontWeight: '800', color: prices[active.id] && prices[active.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
+                                {prices[active.id] ? `${prices[active.id].dp > 0 ? '+' : ''}${prices[active.id].dp.toFixed(2)}% (24H)` : '0.00%'}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                            {Object.entries(signals).map(([k, v]) => {
+                                const isBuy = v.includes('BUY') || v.includes('LONG') || v.includes('BULLISH') || v.includes('UPTREND');
+                                const isSell = v.includes('SELL') || v.includes('SHORT') || v.includes('BEARISH') || v.includes('DOWNTREND');
+                                return (
+                                    <div key={k} style={{ 
+                                        padding: '16px 8px', borderRadius: '16px', textAlign: 'center', transition: '0.3s',
+                                        background: isBuy ? 'rgba(0, 230, 118, 0.05)' : isSell ? 'rgba(255, 61, 0, 0.05)' : 'rgba(255, 255, 255, 0.02)', 
+                                        border: `1px solid ${isBuy ? 'rgba(0, 230, 118, 0.3)' : isSell ? 'rgba(255, 61, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`
+                                    }}>
+                                        <div style={{ fontSize: '10px', color: '#888', marginBottom: '6px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{k}</div>
+                                        <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '12px', fontWeight: '900' }}>{v}</div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #00bfff' }}>
+                                <div style={{ fontSize: '10px', color: '#00bfff', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>TECHNICAL METRICS</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>RSI (14)</span>
+                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.tech.rsi > 65 ? '#00e676' : analysis.tech.rsi < 35 ? '#ff3d00' : '#fff' }}>{analysis.tech.rsi}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>TREND</span>
+                                    <span style={{ fontSize: '11px', fontWeight: '800', color: analysis.tech.trend === 'UPWARD' ? '#00e676' : analysis.tech.trend === 'DOWNWARD' ? '#ff3d00' : '#fff' }}>{analysis.tech.trend}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>CONSENSUS</span>
+                                    <span className={analysis.tech.label.includes('BUY') ? 'neon-text-green' : analysis.tech.label.includes('SELL') ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.tech.label}</span>
+                                </div>
+                            </div>
+                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #f59e0b' }}>
+                                <div style={{ fontSize: '10px', color: '#f59e0b', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>FUNDAMENTAL BIAS</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>BULLISH SCORE</span>
+                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.fund.score > 60 ? '#00e676' : analysis.fund.score < 40 ? '#ff3d00' : '#fff' }}>{analysis.fund.score}%</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>NEWS BUZZ</span>
+                                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#fff' }}>{analysis.fund.buzz}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>SENTIMENT</span>
+                                    <span className={analysis.fund.label === 'BULLISH' ? 'neon-text-green' : analysis.fund.label === 'BEARISH' ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.fund.label}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* --- NEW: AI TRADE SETUP PANEL --- */}
+                        <div className="glass-panel" style={{ padding: '16px', borderTop: tradeSetup.type.includes('LONG') ? '3px solid #00e676' : tradeSetup.type.includes('SHORT') ? '3px solid #ff3d00' : '3px solid #888' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <div style={{ fontSize: '11px', color: tradeSetup.type.includes('LONG') ? '#00e676' : tradeSetup.type.includes('SHORT') ? '#ff3d00' : '#888', fontWeight: '900', letterSpacing: '1px' }}>AI {tradeSetup.type}</div>
+                                <div style={{ fontSize: '9px', color: '#888', fontWeight: '800', border: '1px solid #333', padding: '4px 8px', borderRadius: '12px' }}>RISK/REWARD 1:1.5</div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', textAlign: 'center' }}>
+                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                    <div style={{ fontSize: '9px', color: '#888', marginBottom: '6px', fontWeight: '800', letterSpacing: '1px' }}>ENTRY PRICE</div>
+                                    <div className="number-font" style={{ fontSize: '13px', fontWeight: '800', color: '#fff' }}>${tradeSetup.entry}</div>
+                                </div>
+                                <div style={{ background: 'rgba(0,230,118,0.05)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(0,230,118,0.2)' }}>
+                                    <div style={{ fontSize: '9px', color: '#00e676', marginBottom: '6px', fontWeight: '800', letterSpacing: '1px' }}>TAKE PROFIT (CLOSE)</div>
+                                    <div className="number-font" style={{ fontSize: '13px', fontWeight: '800', color: '#00e676' }}>${tradeSetup.tp}</div>
+                                </div>
+                                <div style={{ background: 'rgba(255,61,0,0.05)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,61,0,0.2)' }}>
+                                    <div style={{ fontSize: '9px', color: '#ff3d00', marginBottom: '6px', fontWeight: '800', letterSpacing: '1px' }}>STOP LOSS (LIMIT)</div>
+                                    <div className="number-font" style={{ fontSize: '13px', fontWeight: '800', color: '#ff3d00' }}>${tradeSetup.sl}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="glass-panel chart-container" style={{ padding: '0', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                            <iframe src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=000000&studies=[]&theme=dark&style=3`} style={{ width: '100%', height: '100%', border: 'none' }} />
+                        </div>
+                    </div>
+
+                    <div className="glass-panel right-area">
+                        <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', marginBottom: '16px', letterSpacing: '1px' }}>LATEST {active.id} NEWS</div>
+                        <div className="scrollable-list">
+                            {newsFeed.length > 0 ? newsFeed.map((news, idx) => (
+                                <a key={idx} href={news.url || '#'} target="_blank" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                    <div style={{ background: 'rgba(0,0,0,0.3)', borderLeft: '3px solid #00e676', padding: '14px', borderRadius: '0 12px 12px 0', marginBottom: '12px', transition: '0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.3)'}>
+                                        <div style={{ fontSize: '12px', fontWeight: '600', lineHeight: '1.5', marginBottom: '6px' }}>{news.headline}</div>
+                                        {news.summary && <div style={{ fontSize: '10px', color: '#666', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', marginBottom: '8px' }}>{news.summary}</div>}
+                                        <div style={{ fontSize: '9px', color: '#00e676', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{news.source || 'Market Feed'}</div>
+                                    </div>
+                                </a>
+                            )) : (
+                                <div style={{ fontSize: '12px', color: '#555', fontStyle: 'italic', textAlign: 'center', padding: '40px 0' }}>Fetching latest headlines...</div>
+                            )}
+                        </div>
+                    </div>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TradeSyncPro />);
+    </script>
+</body>
+</html>
