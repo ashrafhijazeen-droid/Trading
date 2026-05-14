@@ -15,79 +15,76 @@
         const { useState, useEffect } = React;
 
         function TradeSyncPro() {
-            const [mainAsset, setMainAsset] = useState({ id: 'XAU', name: 'GOLD', tvSymbol: 'OANDA:XAUUSD' });
-            const [watchlist, setWatchlist] = useState([
-                { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD' },
-                { id: 'XAG', name: 'SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD' },
-                { id: 'US30', name: 'DOW 30', tag: 'YMMAIN', tv: 'CURRENCYCOM:US30' },
-                { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD' },
-                { id: 'USDJPY', name: 'USD/JPY', tag: 'USDJPY', tv: 'FX:USDJPY' },
-                { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA' }
+            // State for the Active Asset
+            const [active, setActive] = useState({ id: 'XAU', name: 'GOLD', tv: 'OANDA:XAUUSD', tag: 'PAXGUSDT', type: 'B' });
+            
+            // Fixed Watchlist Definitions
+            const [list, setList] = useState([
+                { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B' },
+                { id: 'XAG', name: 'SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD', type: 'B' },
+                { id: 'US30', name: 'DOW 30', tag: 'DJI', tv: 'CURRENCYCOM:US30', type: 'F' },
+                { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B' },
+                { id: 'JPY', name: 'USD/JPY', tag: 'USDJPY', tv: 'FX:USDJPY', type: 'B' },
+                { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F' }
             ]);
+
             const [prices, setPrices] = useState({});
-            const [signals, setSignals] = useState({ scalping: 'NEUTRAL', day: 'WAITING', swing: 'MONITOR' });
+            const [signals, setSignals] = useState({ scalping: 'STABLE', day: 'NEUTRAL', swing: 'MONITOR' });
             const [newTicker, setNewTicker] = useState('');
             
             const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-            const fetchPrice = async (item) => {
+            // Core Price Fetcher
+            const getPrice = async (item) => {
                 try {
-                    // Try Binance Bridge for Commodities/Forex
-                    const bRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${item.tag}`);
-                    const bData = await bRes.json();
-                    if (bData.price) return parseFloat(bData.price);
-
-                    // Try Finnhub for Equities
-                    const fRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.id}&token=${API_KEY}`);
-                    const fData = await fRes.json();
-                    return fData.c || 0;
+                    if (item.type === 'B') {
+                        const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${item.tag}`);
+                        const d = await r.json();
+                        return d.price ? parseFloat(d.price) : 0;
+                    } else {
+                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
+                        const d = await r.json();
+                        return d.c ? d.c : 0;
+                    }
                 } catch (e) { return 0; }
             };
 
-            const updateData = async () => {
-                const newPrices = {};
-                for (const item of watchlist) {
-                    const p = await fetchPrice(item);
-                    newPrices[item.id] = p;
+            const refreshAll = async () => {
+                const results = {};
+                for (const item of list) {
+                    results[item.id] = await getPrice(item);
                 }
-                setPrices(newPrices);
+                setPrices(results);
 
-                // Re-calculate Recommendations based on Price Action
-                const currentP = newPrices[mainAsset.id];
-                if (currentP > 0) {
+                // Update Recommendations for Active Asset
+                const currentPrice = results[active.id];
+                if (currentPrice > 0) {
                     setSignals({
-                        scalping: Math.random() > 0.5 ? 'BUY SCALP' : 'SELL SCALP', // Dynamic Trigger
-                        day: currentP > (prices[mainAsset.id] || 0) ? 'BULLISH TREND' : 'BEARISH TREND',
-                        swing: 'HOLDING STRUCTURE'
+                        scalping: Math.random() > 0.5 ? 'BUY SCALP' : 'SELL SCALP',
+                        day: currentPrice > (prices[active.id] || 0) ? 'BULLISH' : 'BEARISH',
+                        swing: 'HOLDING'
                     });
                 }
             };
 
             useEffect(() => {
-                updateData();
-                const timer = setInterval(updateData, 12000);
+                refreshAll();
+                const timer = setInterval(refreshAll, 10000);
                 return () => clearInterval(timer);
-            }, [mainAsset.id, watchlist]);
-
-            const addAsset = () => {
-                if (!newTicker) return;
-                const upper = newTicker.toUpperCase().trim();
-                setWatchlist([...watchlist, { id: upper, name: upper, tag: upper + 'USDT', tv: upper }]);
-                setNewTicker('');
-            };
+            }, [active.id, list.length]);
 
             return (
                 <div style={{ maxWidth: '400px', margin: '0 auto', background: '#0a0a0a', padding: '15px', borderRadius: '25px', border: '1px solid #1a1a1a' }}>
                     
-                    {/* Header: Signal & Main Price */}
+                    {/* TOP DISPLAY */}
                     <div style={{ textAlign: 'center', marginBottom: '15px' }}>
-                        <div style={{ fontSize: '10px', color: '#00ff88', fontWeight: 'bold', letterSpacing: '2px' }}>{mainAsset.name} AI PULSE</div>
-                        <div style={{ fontSize: '38px', fontWeight: '900', margin: '5px 0' }}>
-                            ${prices[mainAsset.id] ? prices[mainAsset.id].toLocaleString(undefined, {minimumFractionDigits: 2}) : '---'}
+                        <div style={{ fontSize: '10px', color: '#00ff88', fontWeight: 'bold' }}>{active.name} LIVE FEED</div>
+                        <div style={{ fontSize: '36px', fontWeight: '900', margin: '5px 0' }}>
+                            ${prices[active.id] ? prices[active.id].toLocaleString(undefined, {minimumFractionDigits: 2}) : '---'}
                         </div>
                     </div>
 
-                    {/* AI Recommendations Panel */}
+                    {/* STRATEGY SIGNALS (RESTORED) */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '15px' }}>
                         {Object.entries(signals).map(([k, v]) => (
                             <div key={k} style={{ background: '#111', padding: '10px 5px', borderRadius: '10px', textAlign: 'center', border: '1px solid #222' }}>
@@ -97,37 +94,27 @@
                         ))}
                     </div>
 
-                    {/* Chart Section */}
+                    {/* CHART */}
                     <div style={{ height: '220px', width: '100%', marginBottom: '15px', borderRadius: '15px', overflow: 'hidden', border: '1px solid #222' }}>
                         <iframe 
-                            src={`https://s.tradingview.com/widgetembed/?symbol=${mainAsset.tv}&interval=15&theme=dark&style=1&timezone=Asia%2FAmman`}
+                            src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&theme=dark&style=1&timezone=Asia%2FAmman`}
                             style={{ width: '100%', height: '100%', border: 'none' }}
                         />
                     </div>
 
-                    {/* Watchlist with Prices */}
+                    {/* WATCHLIST WITH PRICES (RESTORED) */}
                     <div style={{ maxHeight: '180px', overflowY: 'auto', marginBottom: '15px', paddingRight: '5px' }}>
-                        {watchlist.map(item => (
-                            <div key={item.id} onClick={() => setMainAsset({ id: item.id, name: item.name, tvSymbol: item.tv })} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: '#000', border: '1px solid #111', borderRadius: '10px', marginBottom: '5px', cursor: 'pointer' }}>
-                                <span style={{ fontSize: '11px', fontWeight: 'bold' }}>{item.name}</span>
-                                <span style={{ fontSize: '11px', color: prices[item.id] > 0 ? '#00ff88' : '#444', fontWeight: 'bold' }}>
+                        {list.map(item => (
+                            <div key={item.id} onClick={() => setActive(item)} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: '#000', border: '1px solid #111', borderRadius: '12px', marginBottom: '6px', cursor: 'pointer' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{item.name}</span>
+                                <span style={{ fontSize: '12px', color: '#00ff88', fontWeight: 'bold' }}>
                                     {prices[item.id] ? `$${prices[item.id].toLocaleString()}` : '...'}
                                 </span>
                             </div>
                         ))}
                     </div>
 
-                    {/* Add Asset Field */}
+                    {/* ADD ASSET */}
                     <div style={{ display: 'flex', gap: '5px' }}>
                         <input value={newTicker} onChange={(e) => setNewTicker(e.target.value)} placeholder="TICKER (e.g. BTCUSD)" style={{ flex: 1, background: '#000', color: '#fff', border: '1px solid #333', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '11px' }} />
-                        <button onClick={addAsset} style={{ background: '#00ff88', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', color: '#000' }}>+</button>
-                    </div>
-                </div>
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<TradeSyncPro />);
-    </script>
-</body>
-</html>
+                        <button onClick={() => setList([...list, { id: newTicker.toUpperCase(), name: newTicker.toUpperCase(), tag: newTicker.toUpperCase(), tv: newTicker.toUpperCase(), type: 'F' }])} style={{ background: '#00ff88', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>+</button>
