@@ -1,113 +1,116 @@
-<script type="text/babel">
-    const { useState, useEffect } = React;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSync AI</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body style="background-color: #000; color: #fff; margin: 0; font-family: monospace;">
+    <div id="root"></div>
 
-    function TradeSyncPro() {
-        const [input, setInput] = useState('OANDA:XAU_USD');
-        const [symbol, setSymbol] = useState('OANDA:XAU_USD');
-        const [price, setPrice] = useState(0);
-        const [signals, setSignals] = useState({ scalping: 'SCANNING', day: 'SCANNING', swing: 'SCANNING' });
-        const [marketData, setMarketData] = useState(null);
-        const [sentiment, setSentiment] = useState({ score: 50, label: 'NEUTRAL' });
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-        const key = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
+        function TradeSyncPro() {
+            const [input, setInput] = useState('OANDA:XAU_USD');
+            const [symbol, setSymbol] = useState('OANDA:XAU_USD');
+            const [price, setPrice] = useState(null);
+            const [signals, setSignals] = useState({ scalping: '...', day: '...', swing: '...' });
+            const [sentiment, setSentiment] = useState({ score: 50, label: 'NEUTRAL' });
 
-        // Auto-formatter for symbols
-        const handleSymbolSubmit = (e) => {
-            if (e.key === 'Enter') {
-                let s = input.toUpperCase().replace(/\s/g, '');
-                if (s === 'GOLD' || s === 'XAUUSD') s = 'OANDA:XAU_USD';
-                if (s === 'SILVER' || s === 'XAGUSD') s = 'OANDA:XAG_USD';
-                if (s.length === 6 && !s.includes(':')) s = `FX:${s.slice(0,3)}_${s.slice(3)}`;
-                setSymbol(s);
-                setSignals({ scalping: 'SCANNING', day: 'SCANNING', swing: 'SCANNING' });
-            }
-        };
+            const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-        const runAnalysis = async () => {
-            try {
-                const pReq = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${key}`);
-                const pData = await pReq.json();
-                if (pData.c) setPrice(pData.c);
-
-                const cleanSym = symbol.split(':').pop();
-                const nReq = await fetch(`https://finnhub.io/api/v1/news-sentiment?symbol=${cleanSym}&token=${key}`);
-                const nData = await nReq.json();
-                
-                let sLabel = 'NEUTRAL';
-                if (nData.sentiment) {
-                    const s = nData.sentiment.bullishPercent;
-                    sLabel = s > 0.6 ? 'BULLISH' : s < 0.4 ? 'BEARISH' : 'NEUTRAL';
-                    setSentiment({ score: Math.round(s * 100), label: sLabel });
+            const handleKey = (e) => {
+                if (e.key === 'Enter') {
+                    let s = input.toUpperCase().trim();
+                    if (s === 'GOLD') s = 'OANDA:XAU_USD';
+                    if (s.length === 6 && !s.includes(':')) s = `FX:${s.slice(0,3)}_${s.slice(3)}`;
+                    setSymbol(s);
+                    setPrice(null);
                 }
+            };
 
-                const tReq = await fetch(`https://finnhub.io/api/v1/scan/technical-indicator?symbol=${symbol}&resolution=D&token=${key}`);
-                const tData = await tReq.json();
-                const ind = tData.technicalIndicator;
-                setMarketData(ind);
+            const getData = async () => {
+                try {
+                    // 1. Price
+                    const pR = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${API_KEY}`);
+                    const pD = await pR.json();
+                    if (pD && pD.c) setPrice(pD.c);
 
-                if (ind) {
-                    const { buy, sell, rsi } = ind;
-                    setSignals({
-                        scalping: rsi < 35 && sLabel !== 'BEARISH' ? 'STRONG BUY (OVERSOLD)' : rsi > 65 && sLabel !== 'BULLISH' ? 'STRONG SELL (OVERBOUGHT)' : 'WAIT',
-                        day: buy > sell + 2 && sLabel !== 'BEARISH' ? 'BUY (TRENDING)' : sell > buy + 2 && sLabel !== 'BULLISH' ? 'SELL (TRENDING)' : 'CONFLICT',
-                        swing: buy > 10 && sLabel === 'BULLISH' ? 'MACRO BUY' : sell > 10 && sLabel === 'BEARISH' ? 'MACRO SELL' : 'NEUTRAL'
-                    });
-                } else {
-                    // Fallback if technical API is busy
-                    setSignals({ scalping: 'API BUSY', day: 'WAIT FOR REFRESH', swing: 'RETRYING...' });
-                }
-            } catch (err) { console.error(err); }
-        };
+                    // 2. News
+                    const clean = symbol.split(':').pop() || symbol;
+                    const nR = await fetch(`https://finnhub.io/api/v1/news-sentiment?symbol=${clean}&token=${API_KEY}`);
+                    const nD = await nR.json();
+                    let lbl = 'NEUTRAL';
+                    if (nD && nD.sentiment) {
+                        const pct = nD.sentiment.bullishPercent || 0.5;
+                        lbl = pct > 0.6 ? 'BULLISH' : pct < 0.4 ? 'BEARISH' : 'NEUTRAL';
+                        setSentiment({ score: Math.round(pct * 100), label: lbl });
+                    }
 
-        useEffect(() => {
-            runAnalysis();
-            const timer = setInterval(runAnalysis, 30000);
-            return () => clearInterval(timer);
-        }, [symbol]);
+                    // 3. Indicators
+                    const tR = await fetch(`https://finnhub.io/api/v1/scan/technical-indicator?symbol=${symbol}&resolution=D&token=${API_KEY}`);
+                    const tD = await tR.json();
+                    if (tD && tD.technicalIndicator) {
+                        const { buy, sell, rsi } = tD.technicalIndicator;
+                        setSignals({
+                            scalping: rsi < 35 && lbl !== 'BEARISH' ? 'BUY (OS)' : rsi > 65 && lbl !== 'BULLISH' ? 'SELL (OB)' : 'WAIT',
+                            day: buy > sell + 2 && lbl !== 'BEARISH' ? 'BUY TREND' : sell > buy + 2 && lbl !== 'BULLISH' ? 'SELL TREND' : 'WAIT',
+                            swing: buy > 10 && lbl === 'BULLISH' ? 'STRONG LONG' : sell > 10 && lbl === 'BEARISH' ? 'STRONG SHORT' : 'HOLD'
+                        });
+                    }
+                } catch (err) { console.log("Fetch Error"); }
+            };
 
-        return (
-            <div style={{ color: '#fff', padding: '20px', maxWidth: '500px', margin: '0 auto', fontFamily: 'monospace' }}>
-                <div style={{ backgroundColor: '#111', padding: '20px', borderRadius: '20px', border: '1px solid #333', marginBottom: '15px' }}>
-                    <div style={{fontSize: '10px', color: '#555', marginBottom: '5px'}}>TYPE SYMBOL & PRESS ENTER</div>
-                    <input 
-                        value={input} 
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleSymbolSubmit}
-                        style={{ background: '#000', color: '#3b82f6', border: '1px solid #222', padding: '10px', borderRadius: '10px', fontSize: '18px', fontWeight: 'bold', width: '90%', outline: 'none' }}
-                    />
-                    <div style={{ fontSize: '35px', fontWeight: '900', marginTop: '15px', letterSpacing: '-2px' }}>
-                        ${price ? price.toLocaleString() : '---'}
+            useEffect(() => {
+                getData();
+                const timer = setInterval(getData, 30000);
+                return () => clearInterval(timer);
+            }, [symbol]);
+
+            return (
+                <div style={{ padding: '20px', maxWidth: '400px', margin: '0 auto' }}>
+                    <div style={{ border: '1px solid #333', padding: '15px', borderRadius: '15px', marginBottom: '15px' }}>
+                        <div style={{ fontSize: '10px', color: '#666', marginBottom: '5px' }}>ENTER SYMBOL + ENTER</div>
+                        <input 
+                            value={input} 
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKey}
+                            style={{ background: '#000', color: '#3b82f6', border: '1px solid #333', width: '90%', padding: '10px', borderRadius: '8px', outline: 'none', fontWeight: 'bold' }}
+                        />
+                        <div style={{ fontSize: '30px', fontWeight: '900', marginTop: '10px' }}>
+                            ${price ? price.toFixed(2) : 'LOADING...'}
+                        </div>
                     </div>
-                    <div style={{fontSize: '10px', color: '#444'}}>ACTIVE: {symbol}</div>
-                </div>
 
-                <div style={{ backgroundColor: '#111', padding: '15px', borderRadius: '15px', borderLeft: '4px solid #f59e0b', marginBottom: '15px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', fontWeight: 'bold', color: '#f59e0b' }}>
-                        <span>NEWS SENTIMENT</span>
-                        <span style={{ color: sentiment.label === 'BULLISH' ? '#22c55e' : sentiment.label === 'BEARISH' ? '#ef4444' : '#71717a' }}>{sentiment.label}</span>
+                    <div style={{ borderLeft: '4px solid #f59e0b', background: '#111', padding: '10px', borderRadius: '10px', marginBottom: '15px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px' }}>
+                            <span style={{ color: '#f59e0b' }}>FUNDAMENTALS</span>
+                            <span style={{ color: sentiment.label === 'BULLISH' ? '#22c55e' : sentiment.label === 'BEARISH' ? '#ef4444' : '#666' }}>{sentiment.label}</span>
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{sentiment.score}% BULLISH</div>
                     </div>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '5px' }}>{sentiment.score}% BULLISH BIAS</div>
-                </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
-                    {Object.entries(signals).map(([name, val]) => (
-                        <div key={name} style={{ backgroundColor: '#0a0a0a', padding: '15px', borderRadius: '12px', border: '1px solid #1a1a1a' }}>
-                            <div style={{ fontSize: '9px', color: '#444', marginBottom: '8px', fontWeight: 'bold' }}>{name.toUpperCase()} SIGNAL</div>
+                    {['scalping', 'day', 'swing'].map(s => (
+                        <div key={s} style={{ background: '#0a0a0a', padding: '12px', border: '1px solid #1a1a1a', borderRadius: '10px', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '9px', color: '#444', marginBottom: '5px' }}>{s.toUpperCase()}</div>
                             <div style={{ 
-                                fontSize: '11px', fontWeight: 'bold', padding: '12px', borderRadius: '8px', textAlign: 'center',
-                                color: val.includes('BUY') ? '#22c55e' : val.includes('SELL') ? '#ef4444' : '#555',
-                                border: '1px solid ' + (val.includes('BUY') ? '#22c55e' : val.includes('SELL') ? '#ef4444' : '#222'),
-                                background: val.includes('BUY') ? 'rgba(34,197,94,0.1)' : val.includes('SELL') ? 'rgba(239,68,68,0.1)' : 'transparent'
+                                textAlign: 'center', fontSize: '12px', padding: '8px', borderRadius: '5px', fontWeight: 'bold',
+                                color: signals[s].includes('BUY') || signals[s].includes('LONG') ? '#22c55e' : signals[s].includes('SELL') || signals[s].includes('SHORT') ? '#ef4444' : '#444'
                             }}>
-                                {val}
+                                {signals[s]}
                             </div>
                         </div>
                     ))}
                 </div>
-            </div>
-        );
-    }
+            );
+        }
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<TradeSyncPro />);
-</script>
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TradeSyncPro />);
+    </script>
+</body>
+</html>
