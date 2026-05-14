@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSync Pro</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-black">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const FINNHUB_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
+
+        const STRATEGIES = {
+            SCALPING: { minRR: 1.5, checks: ["M1/M5 Sweep", "RSI Overbought", "FVG Tap", "Order Flow"] },
+            DAY_TRADE: { minRR: 2.0, checks: ["H1 Structure", "15m Order Block", "Asian High/Low", "News Check"] },
+            SWING: { minRR: 3.0, checks: ["Daily Trend", "H4 Zone", "Weekly S/R", "Fundamental Bias"] }
+        };
+
+        const TradeSyncPro = () => {
+            const [strategy, setStrategy] = useState('DAY_TRADE');
+            const [symbol, setSymbol] = useState('OANDA:XAU_USD');
+            const [price, setPrice] = useState(0);
+            const [activeTab, setActiveTab] = useState('DASHBOARD');
+            const [bias, setBias] = useState({ monthly: 'BULLISH', weekly: 'NEUTRAL', daily: 'BULLISH' });
+            const [techChecks, setTechChecks] = useState({});
+            const [fundChecks, setFundChecks] = useState({});
+            const [calc, setCalc] = useState({ entry: '', sl: '', tp: '', account: 10000, riskPct: 1 });
+            const [history, setHistory] = useState(() => JSON.parse(localStorage.getItem('trade_logs') || '[]'));
+            const [isLogging, setIsLogging] = useState(false);
+
+            useEffect(() => {
+                const fetchPrice = async () => {
+                    try {
+                        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_KEY}`);
+                        const data = await res.json();
+                        if (data.c) setPrice(data.c);
+                    } catch (e) { console.error("API Error"); }
+                };
+                fetchPrice();
+                const interval = setInterval(fetchPrice, 15000);
+                return () => clearInterval(interval);
+            }, [symbol]);
+
+            useEffect(() => { localStorage.setItem('trade_logs', JSON.stringify(history)); }, [history]);
+
+            const calculateMtfBonus = () => {
+                let bonus = 0;
+                if (bias.monthly === 'BULLISH') bonus += 10;
+                if (bias.weekly === 'BULLISH') bonus += 10;
+                if (bias.daily === 'BULLISH') bonus += 15;
+                return bonus;
+            };
+
+            const techScore = (Object.values(techChecks).filter(Boolean).length / 4) * 40;
+            const fundScore = (Object.values(fundChecks).filter(Boolean).length / 4) * 40;
+            const totalScore = Math.min(techScore + fundScore + calculateMtfBonus(), 100);
+
+            useEffect(() => {
+                if (totalScore >= 85 && !isLogging && calc.entry > 0) {
+                    setIsLogging(true);
+                    setTimeout(() => {
+                        const newEntry = { id: Date.now(), symbol, strategy, score: totalScore.toFixed(0), outcome: 'PENDING', timestamp: new Date().toLocaleTimeString() };
+                        setHistory(prev => [newEntry, ...prev]);
+                        setIsLogging(false);
+                        setTechChecks({}); setFundChecks({});
+                    }, 1500);
+                }
+            }, [totalScore]);
+
+            const slDist = Math.abs(parseFloat(calc.entry) - parseFloat(calc.sl));
+            const tpDist = Math.abs(parseFloat(calc.tp) - parseFloat(calc.entry));
+            const rr = slDist > 0 ? (tpDist / slDist).toFixed(2) : "0.00";
+
+            return (
+                <div className="min-h-screen bg-black text-slate-300 p-4 font-sans uppercase">
+                    <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        {/* Bias Column */}
+                        <div className="space-y-4">
+                            <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800">
+                                <h3 className="text-[10px] font-black text-blue-500 mb-4 tracking-widest">Macro Bias</h3>
+                                {['monthly', 'weekly', 'daily'].map((tf) => (
+                                    <div key={tf} className="mb-3">
+                                        <label className="text-[8px] text-zinc-500 block mb-1">{tf}</label>
+                                        <div className="flex gap-1">
+                                            {['BEARISH', 'NEUTRAL', 'BULLISH'].map((val) => (
+                                                <button key={val} onClick={() => setBias({ ...bias, [tf]: val })} className={`flex-1 py-1 text-[8px] font-bold rounded border ${bias[tf] === val ? 'bg-blue-600 border-blue-500 text-white' : 'border-zinc-800 text-zinc-600'}`}>{val[0]}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800">
+                                <h3 className="text-[10px] font-black text-amber-500 mb-3 tracking-widest">Technicals</h3>
+                                {STRATEGIES[strategy].checks.map(key => (
+                                    <div key={key} onClick={() => setTechChecks({...techChecks, [key]: !techChecks[key]})} className={`p-2 mb-2 rounded border text-[9px] cursor-pointer ${techChecks[key] ? 'border-blue-500 bg-blue-500/10' : 'border-zinc-800'}`}>{key}</div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Center Column */}
+                        <div className="space-y-6">
+                            <div className="bg-zinc-900 p-10 rounded-3xl border border-zinc-800 text-center relative overflow-hidden shadow-2xl">
+                                <div className="absolute top-0 left-0 w-full h-1 bg-blue-500 animate-pulse" />
+                                <div className="text-5xl font-black text-white tabular-nums">${price.toFixed(2)}</div>
+                                <div className="text-[9px] text-zinc-500 mt-2 tracking-[0.4em]">XAU/USD Live</div>
+                            </div>
+
+                            <div className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800">
+                                <div className="flex justify-between items-end mb-2">
+                                    <span className="text-[9px] font-bold text-zinc-500">CONFLUENCE</span>
+                                    <span className={`text-4xl font-black ${totalScore >= 85 ? 'text-green-500' : 'text-white'}`}>{totalScore.toFixed(0)}%</span>
+                                </div>
+                                <div className="w-full bg-black h-4 rounded-full overflow-hidden p-1 border border-zinc-800">
+                                    <div className="h-full rounded-full bg-blue-600 transition-all duration-1000" style={{ width: `${totalScore}%` }} />
+                                </div>
+                            </div>
+                            
+                            <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
+                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                    <input type="number" placeholder="Entry" onChange={e => setCalc({...calc, entry: e.target.value})} className="bg-black p-3 rounded-xl border border-zinc-800 outline-none w-full text-white font-bold" />
+                                    <input type="number" placeholder="SL" onChange={e => setCalc({...calc, sl: e.target.value})} className="bg-black p-3 rounded-xl border border-zinc-800 outline-none w-full text-white font-bold" />
+                                </div>
+                                <div className="text-center text-xs font-bold text-blue-400">RR: {rr} : 1</div>
+                            </div>
+                        </div>
+
+                        {/* Right Column */}
+                        <div className="bg-zinc-900 p-5 rounded-2xl border border-zinc-800">
+                            <h3 className="text-[10px] font-black text-zinc-500 mb-4 tracking-widest uppercase">History</h3>
+                            {history.map(t => (
+                                <div key={t.id} className="p-2 border-b border-zinc-800 flex justify-between text-[10px]">
+                                    <span>{t.symbol}</span>
+                                    <span className="text-blue-500">{t.score}%</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TradeSyncPro />);
+    </script>
+</body>
+</html>
