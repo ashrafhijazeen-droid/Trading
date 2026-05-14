@@ -72,25 +72,26 @@
             const [signals, setSignals] = useState({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
             
             const [newsFeed, setNewsFeed] = useState([]);
-            // Initialize with an object so React doesn't crash on initial render
             const [marketStatus, setMarketStatus] = useState({ text: 'CHECKING...', color: '#f59e0b' });
             const [newTicker, setNewTicker] = useState('');
             
             const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
 
-            // --- DATA ENGINE ---
-            const getPrice = async (item) => {
+            // --- UPGRADED DATA ENGINE (24-Hour Rolling Data) ---
+            const getMarketData = async (item) => {
                 try {
                     if (item.type === 'B') {
-                        const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${item.tag}`);
+                        // Switch from simple price to full 24hr ticker
+                        const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
-                        return d.price ? parseFloat(d.price) : null;
+                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
                     } else {
+                        // Finnhub naturally provides current (c) and daily percent change (dp)
                         const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
-                        return d.c && d.c !== 0 ? d.c : null;
+                        return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
                     }
                 } catch (e) { return null; }
             };
@@ -108,7 +109,6 @@
                     
                     let filtered = data;
                     if (symbolData.type === 'B' || symbolData.id === 'SPY') {
-                        // Added (n.summary || '') to prevent null crashes
                         filtered = data.filter(n => (n.headline || '').toUpperCase().includes(symbolData.search) || (n.summary || '').toUpperCase().includes(symbolData.search));
                         if (filtered.length === 0) filtered = data;
                     }
@@ -125,13 +125,13 @@
                 
                 if (item.market === 'CRYPTO') return { text: 'MARKET LIVE 24/7', color: '#00e676' };
                 if (item.market === 'FOREX' || item.market === 'COMMODITIES') {
-                    if (day === 6 || (day === 5 && hour >= 21) || (day === 0 && hour < 21)) return { text: 'MARKET CLOSED (WEEKEND)', color: '#ff3d00' };
+                    if (day === 6 || (day === 5 && hour >= 21) || (day === 0 && hour < 21)) return { text: 'MARKET CLOSED', color: '#ff3d00' };
                     return { text: 'MARKET LIVE', color: '#00e676' };
                 }
                 if (item.market === 'US EQUITIES') {
-                    if (day === 0 || day === 6) return { text: 'MARKET CLOSED (WEEKEND)', color: '#ff3d00' };
+                    if (day === 0 || day === 6) return { text: 'MARKET CLOSED', color: '#ff3d00' };
                     if (hour >= 13 && hour < 21) return { text: 'MARKET OPEN', color: '#00e676' };
-                    return { text: 'AFTER-HOURS / CLOSED', color: '#f59e0b' };
+                    return { text: 'AFTER-HOURS', color: '#f59e0b' };
                 }
                 return { text: 'LIVE FEED', color: '#00e676' };
             };
@@ -139,26 +139,31 @@
             const refreshAll = async () => {
                 const newPrices = {};
                 for (const item of list) { 
-                    const p = await getPrice(item);
-                    if (p !== null) newPrices[item.id] = p;
+                    const data = await getMarketData(item);
+                    if (data !== null) newPrices[item.id] = data;
                 }
 
-                // TRUE LOGIC FOR SIGNALS (Safely moved outside of setPrices)
                 const activeNew = newPrices[active.id];
                 const activeOld = prevPrices.current[active.id];
 
-                if (activeNew && activeOld) {
-                    const diff = activeNew - activeOld;
-                    const pctChange = (diff / activeOld) * 100;
+                if (activeNew) {
+                    const currentPrice = activeNew.c;
+                    const dailyPct = activeNew.dp; // 24-hour momentum
                     
+                    // Scalping only reacts if the price literally moved in the last 15 seconds
+                    let scalpStatus = 'WAITING FOR VOLATILITY';
+                    if (activeOld && currentPrice !== activeOld.c) {
+                        scalpStatus = currentPrice > activeOld.c ? 'BUY TICK' : 'SELL TICK';
+                    }
+
+                    // Day & Swing react to the overall daily trend, so they are NEVER neutral unless it's a completely flat day (0.00%)
                     setSignals({
-                        scalping: diff > 0 ? 'BUY TICK' : diff < 0 ? 'SELL TICK' : 'NO CHANGE',
-                        day: pctChange > 0.05 ? 'STRONG BUY' : pctChange < -0.05 ? 'STRONG SELL' : 'NEUTRAL TREND',
-                        swing: activeNew > activeOld ? 'HOLD LONG' : activeNew < activeOld ? 'HOLD SHORT' : 'MONITORING'
+                        scalping: scalpStatus,
+                        day: dailyPct > 0.5 ? 'STRONG BUY' : dailyPct < -0.5 ? 'STRONG SELL' : dailyPct > 0 ? 'BULLISH BIAS' : 'BEARISH BIAS',
+                        swing: dailyPct > 1.5 ? 'HOLD LONG' : dailyPct < -1.5 ? 'HOLD SHORT' : dailyPct > 0 ? 'UPTREND' : 'DOWNTREND'
                     });
                 }
 
-                // Update the state
                 setPrices(prev => {
                     const current = { ...prev };
                     Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
@@ -186,7 +191,6 @@
             return (
                 <div className="glass-panel" style={{ width: '100%', maxWidth: '420px', padding: '24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
                     
-                    {/* Header & Status */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                         <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '-0.5px' }}>
                             TradeSync<span style={{ color: '#00e676' }}>.Pro</span>
@@ -197,21 +201,22 @@
                         </div>
                     </div>
 
-                    {/* Main Price */}
                     <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                         <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
                             {active.name} / USD
                         </div>
                         <div className="number-font" style={{ fontSize: '48px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
-                            ${prices[active.id] ? prices[active.id].toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '---'}
+                            ${prices[active.id] ? prices[active.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '---'}
+                        </div>
+                        <div className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: prices[active.id] && prices[active.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
+                            {prices[active.id] ? `${prices[active.id].dp > 0 ? '+' : ''}${prices[active.id].dp.toFixed(2)}% (24H)` : '0.00%'}
                         </div>
                     </div>
 
-                    {/* AI Recommendations */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
                         {Object.entries(signals).map(([k, v]) => {
-                            const isBuy = v.includes('BUY') || v.includes('LONG');
-                            const isSell = v.includes('SELL') || v.includes('SHORT');
+                            const isBuy = v.includes('BUY') || v.includes('LONG') || v.includes('BULLISH') || v.includes('UPTREND');
+                            const isSell = v.includes('SELL') || v.includes('SHORT') || v.includes('BEARISH') || v.includes('DOWNTREND');
                             return (
                                 <div key={k} style={{ 
                                     background: isBuy ? 'rgba(0, 230, 118, 0.1)' : isSell ? 'rgba(255, 61, 0, 0.1)' : 'rgba(255, 255, 255, 0.05)', 
@@ -219,13 +224,12 @@
                                     padding: '10px 4px', borderRadius: '12px', textAlign: 'center', transition: '0.3s'
                                 }}>
                                     <div style={{ fontSize: '8px', color: '#888', marginBottom: '4px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{k}</div>
-                                    <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '10px', fontWeight: '900' }}>{v}</div>
+                                    <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '9px', fontWeight: '900' }}>{v}</div>
                                 </div>
                             )
                         })}
                     </div>
 
-                    {/* Integrated News Section */}
                     <div style={{ marginBottom: '20px' }}>
                         <div style={{ fontSize: '9px', color: '#666', fontWeight: '800', marginBottom: '8px', letterSpacing: '1px' }}>LATEST {active.id} NEWS</div>
                         {newsFeed.length > 0 ? newsFeed.map((news, idx) => (
@@ -240,12 +244,10 @@
                         )}
                     </div>
 
-                    {/* Chart Container */}
                     <div style={{ height: '180px', width: '100%', marginBottom: '20px', borderRadius: '16px', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                         <iframe src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=000000&studies=[]&theme=dark&style=3`} style={{ width: '100%', height: '100%', border: 'none' }} />
                     </div>
 
-                    {/* Watchlist */}
                     <div style={{ fontSize: '9px', color: '#666', fontWeight: '800', marginBottom: '8px', letterSpacing: '1px' }}>WATCHLIST</div>
                     <div style={{ maxHeight: '140px', overflowY: 'auto', paddingRight: '4px', marginBottom: '16px' }}>
                         {list.map(item => (
@@ -254,14 +256,20 @@
                                     <span style={{ fontSize: '13px', fontWeight: '800' }}>{item.id}</span>
                                     <span style={{ fontSize: '9px', color: '#666', fontWeight: '600' }}>{item.name}</span>
                                 </div>
-                                <span className="number-font" style={{ fontSize: '13px', color: prices[item.id] > 0 ? '#fff' : '#444', fontWeight: '700' }}>
-                                    {prices[item.id] ? `$${prices[item.id].toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '---'}
-                                </span>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                    <span className="number-font" style={{ fontSize: '13px', color: prices[item.id] ? '#fff' : '#444', fontWeight: '700' }}>
+                                        {prices[item.id] ? `$${prices[item.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '---'}
+                                    </span>
+                                    {prices[item.id] && (
+                                        <span className="number-font" style={{ fontSize: '9px', color: prices[item.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
+                                            {prices[item.id].dp > 0 ? '+' : ''}{prices[item.id].dp.toFixed(2)}%
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         ))}
                     </div>
 
-                    {/* Add Ticker Tool */}
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <input value={newTicker} onChange={(e) => setNewTicker(e.target.value)} placeholder="Add ticker (e.g. AAPL)" style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} />
                         <button onClick={() => { if(newTicker) { setList([...list, { id: newTicker.toUpperCase(), name: newTicker.toUpperCase(), tag: newTicker.toUpperCase(), tv: newTicker.toUpperCase(), type: 'F', search: newTicker.toUpperCase(), market: 'USER ADDED' }]); setNewTicker(''); }}} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
