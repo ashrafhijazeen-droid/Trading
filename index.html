@@ -14,81 +14,22 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        body {
-            background-color: #050505;
-            background-image: radial-gradient(circle at 50% 0%, #1a1a2e 0%, #050505 50%);
-            background-attachment: fixed;
-            color: #ffffff;
-            margin: 0;
-            font-family: 'Inter', sans-serif;
-            display: flex;
-            justify-content: center;
-            padding: 20px;
-            min-height: 100vh;
-            box-sizing: border-box;
-        }
-
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #555; }
-
-        .glass-panel {
-            background: rgba(15, 15, 15, 0.8);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 20px;
-            padding: 20px;
-            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
-        }
-
-        .watchlist-item { transition: all 0.2s ease; border: 1px solid transparent; }
-        .watchlist-item:hover { background: rgba(255, 255, 255, 0.03); transform: translateX(4px); }
+        body { background-color: #050505; background-image: radial-gradient(circle at 50% 0%, #1a1a2e 0%, #050505 50%); background-attachment: fixed; color: #ffffff; margin: 0; font-family: 'Inter', sans-serif; display: flex; justify-content: center; padding: 20px; min-height: 100vh; box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; } ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .glass-panel { background: rgba(15, 15, 15, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 20px; padding: 20px; box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5); }
+        .watchlist-item { transition: all 0.2s ease; border: 1px solid transparent; } .watchlist-item:hover { background: rgba(255, 255, 255, 0.03); transform: translateX(4px); }
         .active-item { border: 1px solid rgba(0, 230, 118, 0.3) !important; background: rgba(0, 230, 118, 0.05) !important; }
-
-        .neon-text-green { color: #00e676; text-shadow: 0 0 10px rgba(0, 230, 118, 0.3); }
-        .neon-text-red { color: #ff3d00; text-shadow: 0 0 10px rgba(255, 61, 0, 0.3); }
-        .neon-text-blue { color: #00bfff; text-shadow: 0 0 10px rgba(0, 191, 255, 0.3); }
-        .neon-text-amber { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
-        
-        .number-font { font-family: 'JetBrains Mono', monospace; }
-        input::placeholder { color: #555; font-family: 'Inter', sans-serif; }
-
+        .neon-text-green { color: #00e676; text-shadow: 0 0 10px rgba(0, 230, 118, 0.3); } .neon-text-red { color: #ff3d00; text-shadow: 0 0 10px rgba(255, 61, 0, 0.3); }
+        .number-font { font-family: 'JetBrains Mono', monospace; } input::placeholder { color: #555; font-family: 'Inter', sans-serif; }
         .dashboard-layout { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 500px; }
-        .header-area { order: 1; }
-        .banner-area { order: 2; }
-        .main-area { order: 3; display: flex; flex-direction: column; gap: 20px; }
-        .left-area { order: 4; }
-        .right-area { order: 5; }
-        .chart-container { height: 260px; }
-        .scrollable-list { max-height: 250px; overflow-y: auto; padding-right: 4px; }
-
+        .header-area { order: 1; } .banner-area { order: 2; } .main-area { order: 3; display: flex; flex-direction: column; gap: 20px; } .left-area { order: 4; } .right-area { order: 5; }
+        .chart-container { height: 260px; } .scrollable-list { max-height: 250px; overflow-y: auto; padding-right: 4px; }
         @media (min-width: 1024px) {
-            .dashboard-layout {
-                display: grid;
-                grid-template-columns: 300px 1fr 320px;
-                grid-template-areas: 
-                    "header header header" 
-                    "banner banner banner"
-                    "left main right";
-                max-width: 1400px;
-                align-items: start;
-            }
-            .header-area { grid-area: header; order: unset; }
-            .banner-area { grid-area: banner; order: unset; }
-            .left-area { grid-area: left; order: unset; position: sticky; top: 20px; }
-            .main-area { grid-area: main; order: unset; }
-            .right-area { grid-area: right; order: unset; position: sticky; top: 20px; }
-            .chart-container { height: 380px; }
-            .scrollable-list { max-height: calc(100vh - 350px); }
+            .dashboard-layout { display: grid; grid-template-columns: 300px 1fr 320px; grid-template-areas: "header header header" "banner banner banner" "left main right"; max-width: 1400px; align-items: start; }
+            .header-area { grid-area: header; order: unset; } .banner-area { grid-area: banner; order: unset; } .left-area { grid-area: left; order: unset; position: sticky; top: 20px; } .main-area { grid-area: main; order: unset; } .right-area { grid-area: right; order: unset; position: sticky; top: 20px; }
+            .chart-container { height: 380px; } .scrollable-list { max-height: calc(100vh - 350px); }
         }
-
-        .delete-btn {
-            background: rgba(255, 61, 0, 0.1); border: 1px solid rgba(255, 61, 0, 0.3);
-            color: #ff3d00; border-radius: 6px; padding: 2px 6px; font-size: 10px; cursor: pointer;
-            transition: 0.2s;
-        }
+        .delete-btn { background: rgba(255, 61, 0, 0.1); border: 1px solid rgba(255, 61, 0, 0.3); color: #ff3d00; border-radius: 6px; padding: 2px 6px; font-size: 10px; cursor: pointer; transition: 0.2s; }
         .delete-btn:hover { background: #ff3d00; color: #fff; }
     </style>
 </head>
@@ -122,9 +63,7 @@
                 return () => clearInterval(timer);
             }, []);
 
-            const formatTime = (tz) => {
-                return time.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
-            };
+            const formatTime = (tz) => time.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
 
             const CityBox = ({ city, tz }) => (
                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 5px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
@@ -148,19 +87,13 @@
 
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
-            
-            // MEMORY V20 - Purges the proxy lag history
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v20');
-                if (savedList) {
-                    try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
-                }
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v21');
+                if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v20', JSON.stringify(list));
-            }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v21', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -180,30 +113,35 @@
 
             const [newsFeed, setNewsFeed] = useState([]);
             const [marketStatus, setMarketStatus] = useState({ text: 'CHECKING...', color: '#f59e0b' });
-            const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
             const [newTicker, setNewTicker] = useState('');
+            const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
 
             // ==========================================
-            // 🌐 NATIVE WEBSOCKET ENGINE (FCS API)
+            // 🌐 V4 NATIVE WEBSOCKET ENGINE (FCS API)
             // ==========================================
             useEffect(() => {
                 let ws;
                 try {
-                    ws = new WebSocket(`wss://fcsapi.com/v3/ws?key=${FCS_API_KEY}`);
+                    // Correct V4 Endpoint
+                    ws = new WebSocket('wss://ws-v4.fcsapi.com/ws');
                     
                     ws.onopen = () => {
-                        console.log("FCS WebSocket Connected Successfully");
-                        // Subscribe to all FCS symbols currently in our list
+                        console.log("FCS WebSocket V4 Connected");
+                        // Handshake and Subscription logic for V4
+                        ws.send(JSON.stringify({ action: "login", key: FCS_API_KEY }));
+                        
                         const fcsTags = list.filter(i => i.type === 'FCS').map(i => i.tag);
                         if(fcsTags.length > 0) {
-                            ws.send(JSON.stringify({ action: "subscribe", symbol: fcsTags.join(',') }));
+                            // Slight delay to ensure login is processed
+                            setTimeout(() => {
+                                ws.send(JSON.stringify({ action: "subscribe", symbol: fcsTags.join(',') }));
+                            }, 500);
                         }
                     };
 
                     ws.onmessage = (event) => {
                         try {
                             const response = JSON.parse(event.data);
-                            // Log raw WS data to the console to see what FCS is sending
                             console.log("WS Data Received:", response); 
                             
                             const symbol = response.s || response.symbol;
@@ -211,12 +149,12 @@
                             const rawPct = response.cp || response.chg_per || "0";
                             const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
 
-                            if (symbol && currentPrice) {
+                            if (symbol && currentPrice && !isNaN(currentPrice)) {
                                 const matchedItem = list.find(i => i.tag === symbol);
                                 if (matchedItem) {
                                     setPrices(prev => ({
                                         ...prev,
-                                        [matchedItem.id]: { c: currentPrice, dp: pct }
+                                        [matchedItem.id]: { c: currentPrice, dp: isNaN(pct) ? 0 : pct }
                                     }));
                                 }
                             }
@@ -231,10 +169,7 @@
                     console.error("Could not establish WebSocket:", err);
                 }
 
-                // Cleanup tunnel when component unmounts
-                return () => {
-                    if (ws) ws.close();
-                };
+                return () => { if (ws) ws.close(); };
             }, [list]); 
             // ==========================================
 
@@ -242,7 +177,6 @@
                 const now = new Date();
                 const utcHour = now.getUTCHours();
                 const day = now.getUTCDay();
-
                 const isWeekend = (day === 6) || (day === 5 && utcHour >= 22) || (day === 0 && utcHour < 22);
 
                 if (isWeekend) {
@@ -250,69 +184,42 @@
                     const daysToAdd = day === 5 ? 2 : day === 6 ? 1 : 0;
                     nextOpen.setUTCDate(nextOpen.getUTCDate() + daysToAdd);
                     nextOpen.setUTCHours(22, 0, 0, 0);
-                    
-                    setSessionBanner({
-                        open: 'WEEKEND',
-                        next: 'SYDNEY',
-                        time: nextOpen.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-                    });
+                    setSessionBanner({ open: 'WEEKEND', next: 'SYDNEY', time: nextOpen.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) });
                     return;
                 }
 
-                const sessions = [
-                    { name: 'SYDNEY', open: 22, close: 7 },
-                    { name: 'TOKYO', open: 0, close: 9 },
-                    { name: 'LONDON', open: 8, close: 17 },
-                    { name: 'NEW YORK', open: 13, close: 22 }
-                ];
-
-                let openMarkets = [];
-                let nextMarket = null;
-                let shortestTime = 25;
+                const sessions = [ { name: 'SYDNEY', open: 22, close: 7 }, { name: 'TOKYO', open: 0, close: 9 }, { name: 'LONDON', open: 8, close: 17 }, { name: 'NEW YORK', open: 13, close: 22 } ];
+                let openMarkets = [], nextMarket = null, shortestTime = 25;
 
                 sessions.forEach(m => {
-                    const isOpen = (m.open > m.close) 
-                        ? (utcHour >= m.open || utcHour < m.close) 
-                        : (utcHour >= m.open && utcHour < m.close);
-                    
+                    const isOpen = (m.open > m.close) ? (utcHour >= m.open || utcHour < m.close) : (utcHour >= m.open && utcHour < m.close);
                     if (isOpen) openMarkets.push(m.name);
-
                     let wait = m.open - utcHour;
                     if (wait <= 0) wait += 24; 
-                    
-                    if (wait < shortestTime) {
-                        shortestTime = wait;
-                        nextMarket = m;
-                    }
+                    if (wait < shortestTime) { shortestTime = wait; nextMarket = m; }
                 });
 
                 const nextDate = new Date();
                 nextDate.setUTCHours(nextMarket.open, 0, 0, 0);
                 if (nextDate <= now) nextDate.setDate(nextDate.getDate() + 1);
 
-                setSessionBanner({
-                    open: openMarkets.length > 0 ? openMarkets.join(' & ') : 'MARKETS CLOSED',
-                    next: nextMarket.name,
-                    time: nextDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-                });
+                setSessionBanner({ open: openMarkets.length > 0 ? openMarkets.join(' & ') : 'MARKETS CLOSED', next: nextMarket.name, time: nextDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) });
             };
 
             const getMarketData = async (item) => {
                 try {
-                    // DIRECT REST FALLBACK (If WebSocket fails, it calls direct without the proxy)
+                    // DIRECT REST FALLBACK (If WebSocket hasn't grabbed it yet)
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return null; 
-                        
                         const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
-                        
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
                             const currentPrice = parseFloat(data.price || data.c || 0);
                             const rawPct = data.cp || data.chg_per || "0";
                             const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
-                            return { c: currentPrice, dp: pct };
+                            return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
                         }
                         return null;
                     } 
@@ -328,10 +235,7 @@
                         const d = await r.json();
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
                     }
-                } catch (e) { 
-                    console.error(`REST Fetch Failed for ${item.id}:`, e);
-                    return null; 
-                }
+                } catch (e) { return null; }
             };
 
             const getNews = async (symbolData) => {
@@ -370,32 +274,27 @@
             const refreshAll = async () => {
                 updateGlobalSessions(); 
 
-                // ISOLATED PROMISE LOOP: If one fails, it safely ignores it and loads the rest!
                 const fetchPromises = list.map(async (item) => {
-                    try {
-                        const data = await getMarketData(item);
-                        return { id: item.id, data };
-                    } catch (err) {
-                        return { id: item.id, data: null };
-                    }
+                    try { const data = await getMarketData(item); return { id: item.id, data }; } 
+                    catch (err) { return { id: item.id, data: null }; }
                 });
 
                 const results = await Promise.all(fetchPromises);
-                
                 const newPrices = {};
-                results.forEach(res => {
-                    if (res.data !== null) newPrices[res.id] = res.data;
-                });
+                results.forEach(res => { if (res.data !== null) newPrices[res.id] = res.data; });
 
-                // Safely update state without crashing
                 setPrices(prev => {
                     const current = { ...prev };
-                    Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
+                    Object.keys(newPrices).forEach(k => { 
+                        // Only overwrite if REST fetched successfully. WS might have already updated it.
+                        if(!current[k] || newPrices[k].c !== current[k].c) {
+                            current[k] = newPrices[k]; 
+                        }
+                    });
                     return current;
                 });
             };
 
-            // Calculate Math independently whenever Active Price changes
             useEffect(() => {
                 const activeData = prices[active.id];
                 const activeOld = prevPrices.current[active.id];
@@ -405,13 +304,9 @@
                     const dailyPct = activeData.dp; 
                     
                     let currentScalp = prevSignals.current.scalping; 
-                    if (activeOld && currentPrice > activeOld.c) {
-                        currentScalp = 'BUY TICK'; 
-                    } else if (activeOld && currentPrice < activeOld.c) {
-                        currentScalp = 'SELL TICK'; 
-                    } else if (currentScalp === 'ANALYZING' || currentScalp.includes('WAITING') || !activeOld) {
-                        currentScalp = dailyPct > 0 ? 'MICRO UPTREND' : 'MICRO DOWNTREND';
-                    }
+                    if (activeOld && currentPrice > activeOld.c) { currentScalp = 'BUY TICK'; } 
+                    else if (activeOld && currentPrice < activeOld.c) { currentScalp = 'SELL TICK'; } 
+                    else if (currentScalp === 'ANALYZING' || currentScalp.includes('WAITING') || !activeOld) { currentScalp = dailyPct > 0 ? 'MICRO UPTREND' : 'MICRO DOWNTREND'; }
 
                     const dayLogic = dailyPct > 0.5 ? 'STRONG BUY' : dailyPct < -0.5 ? 'STRONG SELL' : dailyPct > 0 ? 'BULLISH BIAS' : 'BEARISH BIAS';
                     const swingLogic = dailyPct > 1.5 ? 'HOLD LONG' : dailyPct < -1.5 ? 'HOLD SHORT' : dailyPct > 0 ? 'UPTREND' : 'DOWNTREND';
@@ -423,7 +318,6 @@
                     const rsiCalc = Math.min(Math.max(50 + (dailyPct * 12), 15), 85).toFixed(1);
                     const techLabel = dayLogic; 
                     const techTrend = dailyPct >= 0 ? 'UPWARD' : 'DOWNWARD';
-                    
                     const fundScore = Math.min(Math.max(50 + (dailyPct * 15), 10), 90).toFixed(0);
                     const fundLabel = Math.abs(dailyPct) < 0.1 ? 'MIXED' : dailyPct > 0 ? 'BULLISH' : 'BEARISH';
                     const buzzLevel = Math.abs(dailyPct) > 1.5 ? 'EXTREME' : Math.abs(dailyPct) > 0.5 ? 'HIGH' : 'AVERAGE';
@@ -456,19 +350,9 @@
                         const entryPrice = currentPrice;
                         
                         if (dir === 1) { 
-                            return {
-                                type: 'LONG',
-                                entry: entryPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
-                                tp: (entryPrice * (1 + rewardAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
-                                sl: (entryPrice * (1 - riskAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})
-                            };
+                            return { type: 'LONG', entry: entryPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}), tp: (entryPrice * (1 + rewardAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}), sl: (entryPrice * (1 - riskAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}) };
                         } else { 
-                            return {
-                                type: 'SHORT',
-                                entry: entryPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
-                                tp: (entryPrice * (1 - rewardAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
-                                sl: (entryPrice * (1 + riskAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})
-                            };
+                            return { type: 'SHORT', entry: entryPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}), tp: (entryPrice * (1 - rewardAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}), sl: (entryPrice * (1 + riskAmount)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}) };
                         }
                     };
 
@@ -483,75 +367,33 @@
             }, [prices, active.id]);
 
             useEffect(() => {
+                setSignals({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
+                setAnalysis({ tech: { rsi: '...', label: 'ANALYZING', trend: '...' }, fund: { score: '...', label: 'ANALYZING', buzz: '...' } });
+                setTradeSetups({ scalp: { type: 'WAITING', entry: '...', tp: '...', sl: '...' }, day: { type: 'WAITING', entry: '...', tp: '...', sl: '...' }, swing: { type: 'WAITING', entry: '...', tp: '...', sl: '...' } });
+
                 getNews(active);
                 setMarketStatus(checkMarketStatus(active));
                 refreshAll();
             }, [active.id]); 
 
-            // REST fallback interval polling
             useEffect(() => {
-                const timer = setInterval(() => {
-                    refreshAll();
-                    setMarketStatus(checkMarketStatus(active));
-                }, 60000); 
+                const timer = setInterval(() => { refreshAll(); setMarketStatus(checkMarketStatus(active)); }, 60000); 
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
-                    
-                    let apiType = 'FINNHUB';
-                    let fetchTag = rawTicker;
-                    let tvTag = rawTicker;
-                    let marketType = 'US EQUITIES';
-                    let displayName = rawTicker;
+                    let apiType = 'FINNHUB', fetchTag = rawTicker, tvTag = rawTicker, marketType = 'US EQUITIES', displayName = rawTicker;
 
-                    if (rawTicker === 'US30' || rawTicker === 'DOW') {
-                        apiType = 'FINNHUB';
-                        fetchTag = 'DIA';
-                        tvTag = 'AMEX:DIA'; 
-                        displayName = 'US30 (DIA)';
-                    }
-                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
-                        apiType = 'FCS';
-                        fetchTag = 'XAG/USD';
-                        tvTag = 'OANDA:XAGUSD'; 
-                        marketType = 'COMMODITIES';
-                        displayName = 'XAG';
-                    }
-                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
-                        apiType = 'FCS';
-                        fetchTag = 'XAU/USD';
-                        tvTag = 'OANDA:XAUUSD'; 
-                        marketType = 'COMMODITIES';
-                        displayName = 'XAU';
-                    }
-                    else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
-                        apiType = 'FCS';
-                        fetchTag = `${rawTicker.substring(0,3)}/${rawTicker.substring(3,6)}`; 
-                        tvTag = `FX:${rawTicker}`; 
-                        marketType = 'FOREX';
-                        displayName = rawTicker;
-                    } 
-                    else if (rawTicker === 'BTC' || rawTicker === 'ETH' || rawTicker.endsWith('USDT')) {
-                        const cleanCrypto = rawTicker.replace('USDT', '');
-                        apiType = 'BINANCE_S';
-                        fetchTag = `${cleanCrypto}USDT`;
-                        tvTag = `BINANCE:${cleanCrypto}USDT`; 
-                        marketType = 'CRYPTO';
-                        displayName = cleanCrypto;
-                    }
+                    if (rawTicker === 'US30' || rawTicker === 'DOW') { apiType = 'FINNHUB'; fetchTag = 'DIA'; tvTag = 'AMEX:DIA'; displayName = 'US30 (DIA)'; }
+                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') { apiType = 'FCS'; fetchTag = 'XAG/USD'; tvTag = 'OANDA:XAGUSD'; marketType = 'COMMODITIES'; displayName = 'XAG'; }
+                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') { apiType = 'FCS'; fetchTag = 'XAU/USD'; tvTag = 'OANDA:XAUUSD'; marketType = 'COMMODITIES'; displayName = 'XAU'; }
+                    else if (rawTicker.endsWith('USD') && rawTicker.length === 6) { apiType = 'FCS'; fetchTag = `${rawTicker.substring(0,3)}/${rawTicker.substring(3,6)}`; tvTag = `FX:${rawTicker}`; marketType = 'FOREX'; displayName = rawTicker; } 
+                    else if (rawTicker === 'BTC' || rawTicker === 'ETH' || rawTicker.endsWith('USDT')) { const cleanCrypto = rawTicker.replace('USDT', ''); apiType = 'BINANCE_S'; fetchTag = `${cleanCrypto}USDT`; tvTag = `BINANCE:${cleanCrypto}USDT`; marketType = 'CRYPTO'; displayName = cleanCrypto; }
 
                     if (!list.find(item => item.id === displayName)) {
-                        const newItem = { 
-                            id: displayName, 
-                            name: displayName, 
-                            tag: fetchTag, 
-                            tv: tvTag, 
-                            type: apiType, 
-                            market: marketType 
-                        };
+                        const newItem = { id: displayName, name: displayName, tag: fetchTag, tv: tvTag, type: apiType, market: marketType };
                         setList([...list, newItem]); 
                     }
                     setNewTicker(''); 
@@ -567,11 +409,8 @@
 
             return (
                 <div className="dashboard-layout">
-                    
                     <div className="glass-panel header-area" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 25px' }}>
-                        <div style={{ fontSize: '20px', fontWeight: '900', letterSpacing: '-0.5px' }}>
-                            TradeSync<span style={{ color: '#00e676' }}>.Pro</span>
-                        </div>
+                        <div style={{ fontSize: '20px', fontWeight: '900', letterSpacing: '-0.5px' }}>TradeSync<span style={{ color: '#00e676' }}>.Pro</span></div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '8px 16px', borderRadius: '20px', border: `1px solid ${marketStatus.color}40` }}>
                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: marketStatus.color, boxShadow: `0 0 10px ${marketStatus.color}` }}></div>
                             <span style={{ fontSize: '10px', color: marketStatus.color, fontWeight: '800', letterSpacing: '1px' }}>{marketStatus.text}</span>
@@ -579,13 +418,9 @@
                     </div>
 
                     <div className="glass-panel banner-area" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: '10px 30px', padding: '12px 20px', background: 'rgba(0, 230, 118, 0.03)', border: '1px solid rgba(0, 230, 118, 0.15)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#00e676', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                            🟢 LIVE: {sessionBanner.open}
-                        </div>
+                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#00e676', letterSpacing: '1px', textTransform: 'uppercase' }}>🟢 LIVE: {sessionBanner.open}</div>
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
-                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                            ⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}
-                        </div>
+                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}</div>
                     </div>
 
                     <div className="glass-panel left-area">
@@ -611,9 +446,7 @@
                                                     {prices[item.id].dp > 0 ? '+' : ''}{prices[item.id].dp.toFixed(2)}%
                                                 </span>
                                             )}
-                                            {list.length > 1 && (
-                                                <button className="delete-btn" onClick={(e) => handleRemoveTicker(e, item.id)}>✖</button>
-                                            )}
+                                            {list.length > 1 && ( <button className="delete-btn" onClick={(e) => handleRemoveTicker(e, item.id)}>✖</button> )}
                                         </div>
                                     </div>
                                 </div>
@@ -621,7 +454,94 @@
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <input 
-                                value={newTicker} 
-                                onChange={(e) => setNewTicker(e.target.value)} 
-                                onKeyDown={(e)
+                            <input value={newTicker} onChange={(e) => setNewTicker(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()} placeholder="Add ticker (e.g. GBPUSD)" style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} />
+                            <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
+                        </div>
+                    </div>
+
+                    <div className="main-area">
+                        <div className="glass-panel" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '12px', color: '#888', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>{active.name} / USD</div>
+                            <div className="number-font" style={{ fontSize: '56px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
+                                ${prices[active.id] ? prices[active.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}) : '---'}
+                            </div>
+                            <div className="number-font" style={{ fontSize: '14px', fontWeight: '800', color: prices[active.id] && prices[active.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
+                                {prices[active.id] ? `${prices[active.id].dp > 0 ? '+' : ''}${prices[active.id].dp.toFixed(2)}% (24H)` : '0.00%'}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                            {Object.entries(signals).map(([k, v]) => {
+                                const isBuy = v.includes('BUY') || v.includes('LONG') || v.includes('BULLISH') || v.includes('UPTREND');
+                                const isSell = v.includes('SELL') || v.includes('SHORT') || v.includes('BEARISH') || v.includes('DOWNTREND');
+                                return (
+                                    <div key={k} style={{ padding: '16px 8px', borderRadius: '16px', textAlign: 'center', transition: '0.3s', background: isBuy ? 'rgba(0, 230, 118, 0.05)' : isSell ? 'rgba(255, 61, 0, 0.05)' : 'rgba(255, 255, 255, 0.02)', border: `1px solid ${isBuy ? 'rgba(0, 230, 118, 0.3)' : isSell ? 'rgba(255, 61, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}` }}>
+                                        <div style={{ fontSize: '10px', color: '#888', marginBottom: '6px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{k}</div>
+                                        <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '12px', fontWeight: '900' }}>{v}</div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        <div className="glass-panel" style={{ padding: '20px 16px', borderTop: '3px solid #888' }}>
+                            <div style={{ fontSize: '11px', color: '#fff', fontWeight: '900', letterSpacing: '1px', marginBottom: '16px' }}>AI TRADE SETUPS BY TIMEFRAME</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#666', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '12px' }}>
+                                <div style={{ flex: '1.2', minWidth: '0' }}>STRATEGY</div><div style={{ flex: '1', textAlign: 'center', minWidth: '0' }}>ENTRY</div><div style={{ flex: '1', textAlign: 'center', color: '#00e676', minWidth: '0' }}>TARGET</div><div style={{ flex: '1', textAlign: 'right', color: '#ff3d00', minWidth: '0' }}>STOP LOSS</div>
+                            </div>
+                            {[{ label: 'SCALP', data: tradeSetups.scalp, desc: '15m - 1H' }, { label: 'DAY', data: tradeSetups.day, desc: '1H - 24H' }, { label: 'SWING', data: tradeSetups.swing, desc: '1D - 1W' }].map((row, i) => (
+                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                                    <div style={{ flex: '1.2', minWidth: '0' }}><div style={{ fontSize: '11px', fontWeight: '900', color: row.data.type === 'LONG' ? '#00e676' : row.data.type === 'SHORT' ? '#ff3d00' : '#888' }}>{row.label} <span style={{ fontSize: '8px' }}>({row.data.type})</span></div><div style={{ fontSize: '8px', color: '#888', marginTop: '2px' }}>{row.desc}</div></div>
+                                    <div className="number-font" style={{ flex: '1', textAlign: 'center', fontSize: '11px', fontWeight: '800', whiteSpace: 'nowrap' }}>{row.data.entry !== '...' ? '$' + row.data.entry : '...'}</div>
+                                    <div className="number-font" style={{ flex: '1', textAlign: 'center', fontSize: '11px', fontWeight: '800', color: '#00e676', whiteSpace: 'nowrap' }}>{row.data.tp !== '...' ? '$' + row.data.tp : '...'}</div>
+                                    <div className="number-font" style={{ flex: '1', textAlign: 'right', fontSize: '11px', fontWeight: '800', color: '#ff3d00', whiteSpace: 'nowrap' }}>{row.data.sl !== '...' ? '$' + row.data.sl : '...'}</div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #00bfff' }}>
+                                <div style={{ fontSize: '10px', color: '#00bfff', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>TECHNICAL METRICS</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>RSI (14)</span><span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.tech.rsi > 65 ? '#00e676' : analysis.tech.rsi < 35 && analysis.tech.rsi !== '...' ? '#ff3d00' : '#fff' }}>{analysis.tech.rsi}</span></div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>TREND</span><span style={{ fontSize: '11px', fontWeight: '800', color: analysis.tech.trend === 'UPWARD' ? '#00e676' : analysis.tech.trend === 'DOWNWARD' ? '#ff3d00' : '#fff' }}>{analysis.tech.trend}</span></div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}><span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>CONSENSUS</span><span className={analysis.tech.label.includes('BUY') ? 'neon-text-green' : analysis.tech.label.includes('SELL') ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.tech.label}</span></div>
+                            </div>
+                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #f59e0b' }}>
+                                <div style={{ fontSize: '10px', color: '#f59e0b', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>FUNDAMENTAL BIAS</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>BULLISH SCORE</span><span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.fund.score > 60 ? '#00e676' : analysis.fund.score < 40 && analysis.fund.score !== '...' ? '#ff3d00' : '#fff' }}>{analysis.fund.score}{analysis.fund.score !== '...' ? '%' : ''}</span></div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>NEWS BUZZ</span><span style={{ fontSize: '11px', fontWeight: '800', color: '#fff' }}>{analysis.fund.buzz}</span></div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}><span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>SENTIMENT</span><span className={analysis.fund.label === 'BULLISH' ? 'neon-text-green' : analysis.fund.label === 'BEARISH' ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.fund.label}</span></div>
+                            </div>
+                        </div>
+
+                        <div className="glass-panel chart-container" style={{ padding: '0', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                            <iframe src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=000000&studies=[]&theme=dark&style=3`} style={{ width: '100%', height: '100%', border: 'none' }} />
+                        </div>
+                    </div>
+
+                    <div className="glass-panel right-area">
+                        <WorldClock />
+                        <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', marginBottom: '16px', letterSpacing: '1px' }}>LATEST {active.id} NEWS</div>
+                        <div className="scrollable-list">
+                            {newsFeed.length > 0 ? newsFeed.map((news, idx) => (
+                                <a key={idx} href={news.url || '#'} target="_blank" style={{ textDecoration: 'none', color: 'inherit' }}>
+                                    <div style={{ background: 'rgba(0,0,0,0.3)', borderLeft: '3px solid #00e676', padding: '14px', borderRadius: '0 12px 12px 0', marginBottom: '12px', transition: '0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.3)'}>
+                                        <div style={{ fontSize: '12px', fontWeight: '600', lineHeight: '1.5', marginBottom: '6px' }}>{news.headline}</div>
+                                        {news.summary && <div style={{ fontSize: '10px', color: '#666', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', marginBottom: '8px' }}>{news.summary}</div>}
+                                        <div style={{ fontSize: '9px', color: '#00e676', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{news.source || 'Market Feed'}</div>
+                                    </div>
+                                </a>
+                            )) : (
+                                <div style={{ fontSize: '12px', color: '#555', fontStyle: 'italic', textAlign: 'center', padding: '40px 0' }}>Fetching latest headlines...</div>
+                            )}
+                        </div>
+                    </div>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TradeSyncPro />);
+    </script>
+</body>
+</html>
