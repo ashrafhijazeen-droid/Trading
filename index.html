@@ -99,10 +99,10 @@
         const { useState, useEffect, useRef } = React;
 
         // ==========================================
-        // 🔑 API KEYS
+        // 🔑 FULLY INJECTED MASTER API KEYS
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk'; 
+        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk';
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -149,7 +149,6 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY V19
             const [list, setList] = useState(() => {
                 const savedList = localStorage.getItem('tradeSyncWatchlist_v19');
                 if (savedList) {
@@ -247,16 +246,18 @@
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return null; 
                         
-                        // FIX: Added a Cache Buster and CORS Proxy so local files can fetch without being blocked!
-                        const cacheBuster = Date.now();
-                        const targetUrl = encodeURIComponent(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}&cb=${cacheBuster}`);
+                        // FIX: Added CORS Proxy to bypass browser security blocks safely
+                        const targetUrl = encodeURIComponent(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
                         const url = `https://api.allorigins.win/raw?url=${targetUrl}`;
 
                         const r = await fetch(url);
-                        if (!r.ok) return null;
+                        if (!r.ok) {
+                            console.error(`CORS Proxy failed for ${item.tag}`);
+                            return null;
+                        }
                         const d = await r.json();
                         
-                        // Debugging Tool: Logs the error to console if FCS rejects the key
+                        // Error logging if FCS API rejects the key
                         if (d.status === false) {
                             console.error(`FCS API Error for ${item.tag}:`, d.msg);
                             return null;
@@ -264,9 +265,9 @@
 
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
-                            const currentPrice = parseFloat(data.price || data.c || 0);
-                            const rawPct = data.chg_per || data.cp || "0";
-                            const pct = parseFloat(String(rawPct).replace('%', '').replace('+', ''));
+                            const currentPrice = parseFloat(data.c || data.price || 0);
+                            const rawPct = data.cp || data.chg_per || "0";
+                            const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
                             return { c: currentPrice, dp: pct };
                         }
                         return null;
@@ -283,7 +284,10 @@
                         const d = await r.json();
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
                     }
-                } catch (e) { return null; }
+                } catch (e) { 
+                    console.error(`Fetch crashed for ${item.id}:`, e);
+                    return null; 
+                }
             };
 
             const getNews = async (symbolData) => {
@@ -322,11 +326,21 @@
             const refreshAll = async () => {
                 updateGlobalSessions(); 
 
+                // FIX: Concurrent fetching. Prevents one broken API from freezing the rest.
+                const fetchPromises = list.map(async (item) => {
+                    try {
+                        const data = await getMarketData(item);
+                        return { id: item.id, data };
+                    } catch (err) {
+                        return { id: item.id, data: null };
+                    }
+                });
+
+                const results = await Promise.all(fetchPromises);
                 const newPrices = {};
-                for (const item of list) { 
-                    const data = await getMarketData(item);
-                    if (data !== null) newPrices[item.id] = data;
-                }
+                results.forEach(res => {
+                    if (res.data) newPrices[res.id] = res.data;
+                });
 
                 const activeNew = newPrices[active.id];
                 const activeOld = prevPrices.current[active.id];
@@ -365,7 +379,6 @@
                     });
 
                     const safeDailyPct = isNaN(dailyPct) ? 0 : dailyPct;
-                    
                     let assetBaseVol = 0.01; 
                     if (active.market === 'FOREX') assetBaseVol = 0.003; 
                     else if (active.market === 'COMMODITIES') assetBaseVol = 0.01; 
@@ -497,7 +510,6 @@
                             tag: fetchTag, 
                             tv: tvTag, 
                             type: apiType, 
-                            search: displayName.replace('USD', ''), 
                             market: marketType 
                         };
                         setList([...list, newItem]); 
