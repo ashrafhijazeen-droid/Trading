@@ -49,6 +49,8 @@
 
         .neon-text-green { color: #00e676; text-shadow: 0 0 10px rgba(0, 230, 118, 0.3); }
         .neon-text-red { color: #ff3d00; text-shadow: 0 0 10px rgba(255, 61, 0, 0.3); }
+        .neon-text-blue { color: #00bfff; text-shadow: 0 0 10px rgba(0, 191, 255, 0.3); }
+        .neon-text-amber { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
         
         .number-font { font-family: 'JetBrains Mono', monospace; }
         input::placeholder { color: #555; font-family: 'Inter', sans-serif; }
@@ -79,7 +81,7 @@
             .main-area { grid-area: main; order: unset; }
             .right-area { grid-area: right; order: unset; position: sticky; top: 20px; }
             .chart-container { height: 380px; }
-            .scrollable-list { max-height: calc(100vh - 250px); }
+            .scrollable-list { max-height: calc(100vh - 350px); }
         }
 
         .delete-btn {
@@ -105,6 +107,40 @@
             { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
         ];
 
+        // --- NEW: INDEPENDENT WORLD CLOCK COMPONENT ---
+        function WorldClock() {
+            const [time, setTime] = useState(new Date());
+
+            useEffect(() => {
+                const timer = setInterval(() => setTime(new Date()), 1000);
+                return () => clearInterval(timer);
+            }, []);
+
+            const formatTime = (tz) => {
+                return time.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+            };
+
+            const CityBox = ({ city, tz }) => (
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 5px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '8px', color: '#888', fontWeight: '800', letterSpacing: '1px', marginBottom: '4px' }}>{city}</div>
+                    <div className="number-font" style={{ fontSize: '15px', color: '#fff', fontWeight: '800' }}>{formatTime(tz)}</div>
+                </div>
+            );
+
+            return (
+                <div style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', marginBottom: '12px', letterSpacing: '1px' }}>GLOBAL MARKETS TIME</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <CityBox city="NEW YORK" tz="America/New_York" />
+                        <CityBox city="LONDON" tz="Europe/London" />
+                        <CityBox city="TOKYO" tz="Asia/Tokyo" />
+                        <CityBox city="SYDNEY" tz="Australia/Sydney" />
+                    </div>
+                </div>
+            );
+        }
+
+        // --- MAIN APP COMPONENT ---
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
@@ -126,15 +162,14 @@
             const [signals, setSignals] = useState({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
             
             const [analysis, setAnalysis] = useState({ 
-                tech: { rsi: '50.0', label: 'ANALYZING', trend: 'FLAT' }, 
-                fund: { score: '50', label: 'MIXED', buzz: 'LOW' } 
+                tech: { rsi: '...', label: 'ANALYZING', trend: '...' }, 
+                fund: { score: '...', label: 'ANALYZING', buzz: '...' } 
             });
 
-            // --- NEW: Multi-Timeframe Trade Setups ---
             const [tradeSetups, setTradeSetups] = useState({ 
-                scalp: { type: 'WAITING', entry: '0.00', tp: '0.00', sl: '0.00' },
-                day: { type: 'WAITING', entry: '0.00', tp: '0.00', sl: '0.00' },
-                swing: { type: 'WAITING', entry: '0.00', tp: '0.00', sl: '0.00' }
+                scalp: { type: 'WAITING', entry: '...', tp: '...', sl: '...' },
+                day: { type: 'WAITING', entry: '...', tp: '...', sl: '...' },
+                swing: { type: 'WAITING', entry: '...', tp: '...', sl: '...' }
             });
 
             const [newsFeed, setNewsFeed] = useState([]);
@@ -279,7 +314,7 @@
                         currentScalp = 'BUY TICK'; 
                     } else if (activeOld && currentPrice < activeOld.c) {
                         currentScalp = 'SELL TICK'; 
-                    } else if (currentScalp === 'ANALYZING' || currentScalp.includes('WAITING')) {
+                    } else if (currentScalp === 'ANALYZING' || currentScalp.includes('WAITING') || !activeOld) {
                         currentScalp = dailyPct > 0 ? 'MICRO UPTREND' : 'MICRO DOWNTREND';
                     }
 
@@ -303,10 +338,8 @@
                         fund: { score: fundScore, label: fundLabel, buzz: buzzLevel }
                     });
 
-                    // --- NEW: MULTI-TIMEFRAME CALCULATION ENGINE ---
                     const baseVolatility = Math.max(Math.abs(dailyPct) / 100, 0.005); 
                     
-                    // Determine direction for each timeframe
                     let scalpDir = 1;
                     if (currentScalp.includes('SELL') || currentScalp.includes('DOWN')) scalpDir = -1;
                     else if (currentScalp.includes('BUY') || currentScalp.includes('UP')) scalpDir = 1;
@@ -315,19 +348,17 @@
                     const dayDir = (dayLogic.includes('SELL') || dayLogic.includes('BEAR')) ? -1 : 1;
                     const swingDir = (swingLogic.includes('SHORT') || swingLogic.includes('DOWN')) ? -1 : 1;
 
-                    // Reusable setup generator function
                     const generateSetup = (dir, volMult, rewardRatio) => {
                         const risk = baseVolatility * volMult;
                         const reward = risk * rewardRatio;
-                        
-                        if (dir === 1) { // LONG
+                        if (dir === 1) { 
                             return {
                                 type: 'LONG',
                                 entry: (currentPrice * (1 - risk * 0.2)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
                                 tp: (currentPrice * (1 + reward)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
                                 sl: (currentPrice * (1 - risk)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})
                             };
-                        } else { // SHORT
+                        } else { 
                             return {
                                 type: 'SHORT',
                                 entry: (currentPrice * (1 + risk * 0.2)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}),
@@ -338,11 +369,8 @@
                     };
 
                     setTradeSetups({
-                        // Scalp: 10% base risk width, 1.5x reward
                         scalp: generateSetup(scalpDir, 0.1, 1.5),
-                        // Day: 50% base risk width, 2.0x reward
                         day: generateSetup(dayDir, 0.5, 2.0),
-                        // Swing: 200% base risk width, 3.0x reward
                         swing: generateSetup(swingDir, 2.0, 3.0)
                     });
                 }
@@ -356,6 +384,17 @@
             };
 
             useEffect(() => {
+                setSignals({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
+                setAnalysis({ 
+                    tech: { rsi: '...', label: 'ANALYZING', trend: '...' }, 
+                    fund: { score: '...', label: 'ANALYZING', buzz: '...' } 
+                });
+                setTradeSetups({ 
+                    scalp: { type: 'WAITING', entry: '...', tp: '...', sl: '...' },
+                    day: { type: 'WAITING', entry: '...', tp: '...', sl: '...' },
+                    swing: { type: 'WAITING', entry: '...', tp: '...', sl: '...' }
+                });
+
                 getNews(active);
                 setMarketStatus(checkMarketStatus(active));
                 refreshAll();
@@ -421,7 +460,7 @@
                         
                         <div className="scrollable-list" style={{ marginBottom: '16px' }}>
                             {list.map(item => (
-                                <div key={item.id} className={`watchlist-item ${active.id === item.id ? 'active-item' : ''}`} onClick={() => setActive(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', marginBottom: '8px', cursor: 'pointer' }}>
+                                <div key={item.id} className={`watchlist-item ${active.id === item.id ? 'active-item' : ''}`} onClick={() => { if(active.id !== item.id) setActive(item); }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', marginBottom: '8px', cursor: 'pointer' }}>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                                         <span style={{ fontSize: '14px', fontWeight: '800' }}>{item.id}</span>
                                         <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
@@ -487,11 +526,9 @@
                             })}
                         </div>
 
-                        {/* --- NEW: MULTI-TIMEFRAME MATRIX --- */}
                         <div className="glass-panel" style={{ padding: '20px 16px', borderTop: '3px solid #888' }}>
                             <div style={{ fontSize: '11px', color: '#fff', fontWeight: '900', letterSpacing: '1px', marginBottom: '16px' }}>AI TRADE SETUPS BY TIMEFRAME</div>
                             
-                            {/* Table Header */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#666', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '12px' }}>
                                 <div style={{ width: '28%' }}>STRATEGY</div>
                                 <div style={{ width: '24%', textAlign: 'center' }}>ENTRY</div>
@@ -499,7 +536,6 @@
                                 <div style={{ width: '24%', textAlign: 'right', color: '#ff3d00' }}>STOP LOSS</div>
                             </div>
 
-                            {/* Table Rows */}
                             {[
                                 { label: 'SCALP', data: tradeSetups.scalp, desc: '15m - 1H' },
                                 { label: 'DAY', data: tradeSetups.day, desc: '1H - 24H' },
@@ -507,12 +543,12 @@
                             ].map((row, i) => (
                                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
                                     <div style={{ width: '28%' }}>
-                                        <div style={{ fontSize: '11px', fontWeight: '900', color: row.data.type === 'LONG' ? '#00e676' : '#ff3d00' }}>{row.label} <span style={{ fontSize: '8px' }}>({row.data.type})</span></div>
+                                        <div style={{ fontSize: '11px', fontWeight: '900', color: row.data.type === 'LONG' ? '#00e676' : row.data.type === 'SHORT' ? '#ff3d00' : '#888' }}>{row.label} <span style={{ fontSize: '8px' }}>({row.data.type})</span></div>
                                         <div style={{ fontSize: '8px', color: '#888', marginTop: '2px' }}>{row.desc}</div>
                                     </div>
-                                    <div className="number-font" style={{ width: '24%', textAlign: 'center', fontSize: '12px', fontWeight: '800' }}>${row.data.entry}</div>
-                                    <div className="number-font" style={{ width: '24%', textAlign: 'center', fontSize: '12px', fontWeight: '800', color: '#00e676' }}>${row.data.tp}</div>
-                                    <div className="number-font" style={{ width: '24%', textAlign: 'right', fontSize: '12px', fontWeight: '800', color: '#ff3d00' }}>${row.data.sl}</div>
+                                    <div className="number-font" style={{ width: '24%', textAlign: 'center', fontSize: '12px', fontWeight: '800' }}>{row.data.entry !== '...' ? '$' + row.data.entry : '...'}</div>
+                                    <div className="number-font" style={{ width: '24%', textAlign: 'center', fontSize: '12px', fontWeight: '800', color: '#00e676' }}>{row.data.tp !== '...' ? '$' + row.data.tp : '...'}</div>
+                                    <div className="number-font" style={{ width: '24%', textAlign: 'right', fontSize: '12px', fontWeight: '800', color: '#ff3d00' }}>{row.data.sl !== '...' ? '$' + row.data.sl : '...'}</div>
                                 </div>
                             ))}
                         </div>
@@ -522,7 +558,7 @@
                                 <div style={{ fontSize: '10px', color: '#00bfff', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>TECHNICAL METRICS</div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                     <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>RSI (14)</span>
-                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.tech.rsi > 65 ? '#00e676' : analysis.tech.rsi < 35 ? '#ff3d00' : '#fff' }}>{analysis.tech.rsi}</span>
+                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.tech.rsi > 65 ? '#00e676' : analysis.tech.rsi < 35 && analysis.tech.rsi !== '...' ? '#ff3d00' : '#fff' }}>{analysis.tech.rsi}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                     <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>TREND</span>
@@ -537,7 +573,7 @@
                                 <div style={{ fontSize: '10px', color: '#f59e0b', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>FUNDAMENTAL BIAS</div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                     <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>BULLISH SCORE</span>
-                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.fund.score > 60 ? '#00e676' : analysis.fund.score < 40 ? '#ff3d00' : '#fff' }}>{analysis.fund.score}%</span>
+                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.fund.score > 60 ? '#00e676' : analysis.fund.score < 40 && analysis.fund.score !== '...' ? '#ff3d00' : '#fff' }}>{analysis.fund.score}{analysis.fund.score !== '...' ? '%' : ''}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                     <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>NEWS BUZZ</span>
@@ -556,6 +592,7 @@
                     </div>
 
                     <div className="glass-panel right-area">
+                        <WorldClock />
                         <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', marginBottom: '16px', letterSpacing: '1px' }}>LATEST {active.id} NEWS</div>
                         <div className="scrollable-list">
                             {newsFeed.length > 0 ? newsFeed.map((news, idx) => (
