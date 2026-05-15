@@ -87,13 +87,15 @@
 
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
+            
+            // MEMORY V22
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v21');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v22');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v21', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v22', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -115,63 +117,6 @@
             const [marketStatus, setMarketStatus] = useState({ text: 'CHECKING...', color: '#f59e0b' });
             const [newTicker, setNewTicker] = useState('');
             const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
-
-            // ==========================================
-            // 🌐 V4 NATIVE WEBSOCKET ENGINE (FCS API)
-            // ==========================================
-            useEffect(() => {
-                let ws;
-                try {
-                    // Correct V4 Endpoint
-                    ws = new WebSocket('wss://ws-v4.fcsapi.com/ws');
-                    
-                    ws.onopen = () => {
-                        console.log("FCS WebSocket V4 Connected");
-                        // Handshake and Subscription logic for V4
-                        ws.send(JSON.stringify({ action: "login", key: FCS_API_KEY }));
-                        
-                        const fcsTags = list.filter(i => i.type === 'FCS').map(i => i.tag);
-                        if(fcsTags.length > 0) {
-                            // Slight delay to ensure login is processed
-                            setTimeout(() => {
-                                ws.send(JSON.stringify({ action: "subscribe", symbol: fcsTags.join(',') }));
-                            }, 500);
-                        }
-                    };
-
-                    ws.onmessage = (event) => {
-                        try {
-                            const response = JSON.parse(event.data);
-                            console.log("WS Data Received:", response); 
-                            
-                            const symbol = response.s || response.symbol;
-                            const currentPrice = parseFloat(response.c || response.price || response.p);
-                            const rawPct = response.cp || response.chg_per || "0";
-                            const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
-
-                            if (symbol && currentPrice && !isNaN(currentPrice)) {
-                                const matchedItem = list.find(i => i.tag === symbol);
-                                if (matchedItem) {
-                                    setPrices(prev => ({
-                                        ...prev,
-                                        [matchedItem.id]: { c: currentPrice, dp: isNaN(pct) ? 0 : pct }
-                                    }));
-                                }
-                            }
-                        } catch(err) {
-                            console.error("WS Parsing Error:", err);
-                        }
-                    };
-
-                    ws.onerror = (err) => console.error("FCS WebSocket Connection Error:", err);
-
-                } catch (err) {
-                    console.error("Could not establish WebSocket:", err);
-                }
-
-                return () => { if (ws) ws.close(); };
-            }, [list]); 
-            // ==========================================
 
             const updateGlobalSessions = () => {
                 const now = new Date();
@@ -208,15 +153,38 @@
 
             const getMarketData = async (item) => {
                 try {
-                    // DIRECT REST FALLBACK (If WebSocket hasn't grabbed it yet)
+                    // ==========================================
+                    // 🛡️ DUAL-PROXY FCS ENGINE (Bypasses CORS)
+                    // ==========================================
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return null; 
-                        const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
-                        if (!r.ok) return null;
+                        
+                        const targetUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`;
+                        
+                        // Proxy 1: AllOrigins
+                        let r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
+                        
+                        // Proxy 2 Fallback: If AllOrigins fails, try CORSProxy.io
+                        if (!r.ok) {
+                            r = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
+                        }
+
+                        if (!r.ok) {
+                            console.error(`Both proxies failed for ${item.tag}`);
+                            return null;
+                        }
+
                         const d = await r.json();
+                        
+                        // Check if FCS rejected the request (e.g. out of free credits)
+                        if (d.status === false) {
+                            console.error(`FCS API Rejected Request for ${item.tag}. Message:`, d.msg);
+                            return null;
+                        }
+
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
-                            const currentPrice = parseFloat(data.price || data.c || 0);
+                            const currentPrice = parseFloat(data.c || data.price || 0);
                             const rawPct = data.cp || data.chg_per || "0";
                             const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
                             return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
@@ -235,7 +203,10 @@
                         const d = await r.json();
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
                     }
-                } catch (e) { return null; }
+                } catch (e) { 
+                    console.error(`Fetch crashed for ${item.id}:`, e);
+                    return null; 
+                }
             };
 
             const getNews = async (symbolData) => {
@@ -285,12 +256,7 @@
 
                 setPrices(prev => {
                     const current = { ...prev };
-                    Object.keys(newPrices).forEach(k => { 
-                        // Only overwrite if REST fetched successfully. WS might have already updated it.
-                        if(!current[k] || newPrices[k].c !== current[k].c) {
-                            current[k] = newPrices[k]; 
-                        }
-                    });
+                    Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
                     return current;
                 });
             };
@@ -376,6 +342,7 @@
                 refreshAll();
             }, [active.id]); 
 
+            // Hard 60 second delay to protect FCS API credits
             useEffect(() => {
                 const timer = setInterval(() => { refreshAll(); setMarketStatus(checkMarketStatus(active)); }, 60000); 
                 return () => clearInterval(timer);
