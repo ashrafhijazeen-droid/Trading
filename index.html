@@ -45,7 +45,7 @@
         // 🔑 API KEYS INJECTED
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk'; 
+        const FCS_API_KEY = 'bJDUDT4iQe56HlsTgpJPjFIndRhAZ'; // FIXED: Exact correct key restored
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -90,14 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY V26
+            // MEMORY V27
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v26');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v27');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v26', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v27', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -120,7 +120,7 @@
             const [newTicker, setNewTicker] = useState('');
             const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
             
-            // NEW: Rate Limit Timer
+            // Rate Limit Timer
             const [countdown, setCountdown] = useState(60);
 
             const updateGlobalSessions = () => {
@@ -413,7 +413,7 @@
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
                         <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}</div>
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
-                        {/* THE NEW TIMER UI */}
+                        {/* THE TIMER UI */}
                         <div style={{ fontSize: '11px', fontWeight: '900', color: countdown <= 10 ? '#ff3d00' : '#00bfff', letterSpacing: '1px', textTransform: 'uppercase' }}>
                             🔄 DATA REFRESH: <span className="number-font">{countdown}s</span>
                         </div>
