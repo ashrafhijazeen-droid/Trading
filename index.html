@@ -102,7 +102,7 @@
         // 🔑 FULLY INJECTED MASTER API KEYS
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'uovfAJP7KcroV2D6Cyv0C'; // <-- YOUR NEW KEY INJECTED
+        const FCS_API_KEY = 'bJDUDT4iQe56HlsTgpJPjFIndRhAZ'; // UPDATED KEY
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -149,9 +149,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY V17 - Hard reset for the newly injected key and bulletproof parser
+            // MEMORY V18
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v17');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v18');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -159,7 +159,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v17', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v18', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -245,18 +245,16 @@
             const getMarketData = async (item) => {
                 try {
                     if (item.type === 'FCS') {
-                        if (!FCS_API_KEY) return null; 
+                        if (!FCS_API_KEY || FCS_API_KEY === 'PUT_YOUR_FCS_API_KEY_HERE') return null; 
                         
                         const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         
-                        // FIXED: Bullet-proofed parsing to handle ANY format FCS throws at us
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
                             const currentPrice = parseFloat(data.c || data.price || 0);
                             
-                            // Grabs the change percentage whether they label it 'cp' or 'chg_per'
                             const rawPct = data.cp || data.chg_per || "0";
                             const pct = parseFloat(String(rawPct).replace('%', '').replace('+', ''));
                             
@@ -420,7 +418,6 @@
                 refreshAll();
             }, [active.id]); 
 
-            // Polling is set to 60 seconds to protect API limits
             useEffect(() => {
                 const timer = setInterval(() => {
                     refreshAll();
