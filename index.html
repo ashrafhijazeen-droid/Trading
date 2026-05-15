@@ -45,7 +45,7 @@
         // 🔑 API KEYS INJECTED
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'w0zDB2B4PDGVaAR2c7srTsD2ZEz'; // <-- NEW KEY INJECTED
+        const FCS_API_KEY = 'w0zDB2B4PDGVaAR2c7srTsD2ZEz'; 
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -90,14 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // DIAGNOSTIC MEMORY V28
+            // DIAGNOSTIC MEMORY V29
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v28');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v29');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v28', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v29', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -157,14 +157,15 @@
             const getMarketData = async (item) => {
                 try {
                     // ==========================================
-                    // 🛡️ DIAGNOSTIC FCS ENGINE
+                    // 🛡️ DIAGNOSTIC FCS ENGINE V2
                     // ==========================================
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return { error: 'NO_KEY_FOUND' }; 
                         
+                        // FIX: Removed cache-buster, trimmed key spaces to prevent server confusion
+                        const cleanKey = FCS_API_KEY.trim();
                         const encodedTag = encodeURIComponent(item.tag);
-                        const cacheBuster = Date.now();
-                        const directUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${encodedTag}&access_key=${FCS_API_KEY}&cb=${cacheBuster}`;
+                        const directUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${encodedTag}&access_key=${cleanKey}`;
                         
                         let r;
 
@@ -185,7 +186,7 @@
                         
                         const d = await r.json();
                         
-                        // If FCS intentionally rejects us, grab their exact error message
+                        // If FCS intentionally rejects us
                         if (d.status === false) {
                             return { error: d.msg || 'FCS_REJECT' };
                         }
@@ -208,7 +209,7 @@
                         return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
                     }
                     else if (item.type === 'FINNHUB') {
-                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY}`);
+                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY.trim()}`);
                         if (!r.ok) return { error: 'FINNHUB_FAIL' };
                         const d = await r.json();
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : { error: 'NO_FINN_DATA' };
@@ -220,11 +221,11 @@
 
             const getNews = async (symbolData) => {
                 try {
-                    let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`;
+                    let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY.trim()}`;
                     if (symbolData.type === 'FINNHUB' && symbolData.id !== 'SPY') {
                         const today = new Date().toISOString().split('T')[0];
                         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.tag}&from=${lastWeek}&to=${today}&token=${FINNHUB_API_KEY}`;
+                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.tag}&from=${lastWeek}&to=${today}&token=${FINNHUB_API_KEY.trim()}`;
                     }
                     const res = await fetch(endpoint);
                     const data = await res.json();
