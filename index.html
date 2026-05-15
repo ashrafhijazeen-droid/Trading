@@ -20,6 +20,8 @@
         .watchlist-item { transition: all 0.2s ease; border: 1px solid transparent; } .watchlist-item:hover { background: rgba(255, 255, 255, 0.03); transform: translateX(4px); }
         .active-item { border: 1px solid rgba(0, 230, 118, 0.3) !important; background: rgba(0, 230, 118, 0.05) !important; }
         .neon-text-green { color: #00e676; text-shadow: 0 0 10px rgba(0, 230, 118, 0.3); } .neon-text-red { color: #ff3d00; text-shadow: 0 0 10px rgba(255, 61, 0, 0.3); }
+        .neon-text-blue { color: #00bfff; text-shadow: 0 0 10px rgba(0, 191, 255, 0.3); } .neon-text-amber { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+        
         .number-font { font-family: 'JetBrains Mono', monospace; } input::placeholder { color: #555; font-family: 'Inter', sans-serif; }
         .dashboard-layout { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 500px; }
         .header-area { order: 1; } .banner-area { order: 2; } .main-area { order: 3; display: flex; flex-direction: column; gap: 20px; } .left-area { order: 4; } .right-area { order: 5; }
@@ -88,13 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
+            // DIAGNOSTIC MEMORY V24
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v23');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v24');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v23', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v24', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -150,6 +153,73 @@
                 setSessionBanner({ open: openMarkets.length > 0 ? openMarkets.join(' & ') : 'MARKETS CLOSED', next: nextMarket.name, time: nextDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) });
             };
 
+            const getMarketData = async (item) => {
+                try {
+                    // ==========================================
+                    // 🛡️ DIAGNOSTIC FCS ENGINE
+                    // ==========================================
+                    if (item.type === 'FCS') {
+                        if (!FCS_API_KEY) return { error: 'NO_KEY_FOUND' }; 
+                        
+                        // We must URL encode the tag (e.g. XAU/USD -> XAU%2FUSD) to prevent server errors
+                        const encodedTag = encodeURIComponent(item.tag);
+                        const cacheBuster = Date.now();
+                        const directUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${encodedTag}&access_key=${FCS_API_KEY}&cb=${cacheBuster}`;
+                        
+                        let r;
+                        let usedProxy = false;
+
+                        // Attempt 1: Direct connection
+                        try {
+                            r = await fetch(directUrl);
+                        } catch (err) {
+                            // Direct connection blocked (CORS). Attempt 2: Proxy
+                            usedProxy = true;
+                            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+                            try {
+                                r = await fetch(proxyUrl);
+                            } catch (proxyErr) {
+                                return { error: 'CORS_BLOCK' };
+                            }
+                        }
+
+                        if (!r.ok) return { error: `HTTP_${r.status}` };
+                        
+                        const d = await r.json();
+                        
+                        // If FCS intentionally rejects us, grab their exact error message
+                        if (d.status === false) {
+                            return { error: d.msg || 'FCS_REJECT' };
+                        }
+
+                        // Success! Parse the data.
+                        if (d.status && d.response && d.response.length > 0) {
+                            const data = d.response[0];
+                            const currentPrice = parseFloat(data.c || data.price || 0);
+                            const rawPct = data.cp || data.chg_per || "0";
+                            const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
+                            return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
+                        }
+
+                        return { error: 'NO_DATA_RETURNED' };
+                    } 
+                    else if (item.type === 'BINANCE_S') {
+                        const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
+                        if (!r.ok) return { error: 'BINANCE_FAIL' };
+                        const d = await r.json();
+                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
+                    }
+                    else if (item.type === 'FINNHUB') {
+                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY}`);
+                        if (!r.ok) return { error: 'FINNHUB_FAIL' };
+                        const d = await r.json();
+                        return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : { error: 'NO_FINN_DATA' };
+                    }
+                } catch (e) { 
+                    return { error: 'CRASH' }; 
+                }
+            };
+
             const getNews = async (symbolData) => {
                 try {
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`;
@@ -183,69 +253,23 @@
                 return { text: 'LIVE FEED', color: '#00e676' };
             };
 
-            // ==========================================
-            // 🚀 THE ISOLATED BATCH ENGINE
-            // ==========================================
             const refreshAll = async () => {
                 updateGlobalSessions(); 
-                const newPrices = {};
 
-                // 1. ISOLATED FCS BATCH (Only uses 1 credit for all metals/forex!)
-                const fcsItems = list.filter(i => i.type === 'FCS');
-                if (fcsItems.length > 0 && FCS_API_KEY) {
-                    try {
-                        const tags = fcsItems.map(i => i.tag).join(',');
-                        let d;
-                        
-                        try {
-                            // Try lightning-fast direct fetch
-                            const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${tags}&access_key=${FCS_API_KEY}`);
-                            d = await r.json();
-                        } catch (err) {
-                            // If local file:// blocks it, route through the JSON-wrapper proxy
-                            console.warn("Direct FCS fetch blocked by browser. Using wrapper proxy...");
-                            const proxyUrl = encodeURIComponent(`https://fcsapi.com/api-v3/forex/latest?symbol=${tags}&access_key=${FCS_API_KEY}`);
-                            const r = await fetch(`https://api.allorigins.win/get?url=${proxyUrl}`);
-                            const proxyData = await r.json();
-                            d = JSON.parse(proxyData.contents);
-                        }
-
-                        if (d.status && d.response) {
-                            d.response.forEach(data => {
-                                const matchedItem = fcsItems.find(i => i.tag === data.s);
-                                if (matchedItem) {
-                                    const currentPrice = parseFloat(data.c || data.price || 0);
-                                    const rawPct = data.cp || data.chg_per || "0";
-                                    const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
-                                    newPrices[matchedItem.id] = { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
-                                }
-                            });
-                        } else {
-                            console.error("FCS API Rejected Request:", d.msg);
-                        }
-                    } catch (e) {
-                        console.error("FCS Batch Fetch Completely Failed:", e);
+                const fetchPromises = list.map(async (item) => {
+                    try { 
+                        const data = await getMarketData(item); 
+                        return { id: item.id, data }; 
+                    } catch (err) { 
+                        return { id: item.id, data: { error: 'PROMISE_FAIL' } }; 
                     }
-                }
-
-                // 2. ISOLATED BINANCE & FINNHUB (Promise All)
-                const otherItems = list.filter(i => i.type !== 'FCS');
-                const fetchPromises = otherItems.map(async (item) => {
-                    try {
-                        if (item.type === 'BINANCE_S') {
-                            const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
-                            const d = await r.json();
-                            return { id: item.id, data: { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) } };
-                        } else if (item.type === 'FINNHUB') {
-                            const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY}`);
-                            const d = await r.json();
-                            return { id: item.id, data: d.c ? { c: d.c, dp: d.dp || 0 } : null };
-                        }
-                    } catch (e) { return { id: item.id, data: null }; }
                 });
 
                 const results = await Promise.all(fetchPromises);
-                results.forEach(res => { if (res && res.data) newPrices[res.id] = res.data; });
+                const newPrices = {};
+                results.forEach(res => { 
+                    if (res && res.data) newPrices[res.id] = res.data; 
+                });
 
                 setPrices(prev => {
                     const current = { ...prev };
@@ -258,13 +282,13 @@
                 const activeData = prices[active.id];
                 const activeOld = prevPrices.current[active.id];
 
-                if (activeData) {
+                if (activeData && !activeData.error) {
                     const currentPrice = activeData.c;
                     const dailyPct = activeData.dp; 
                     
                     let currentScalp = prevSignals.current.scalping; 
-                    if (activeOld && currentPrice > activeOld.c) { currentScalp = 'BUY TICK'; } 
-                    else if (activeOld && currentPrice < activeOld.c) { currentScalp = 'SELL TICK'; } 
+                    if (activeOld && !activeOld.error && currentPrice > activeOld.c) { currentScalp = 'BUY TICK'; } 
+                    else if (activeOld && !activeOld.error && currentPrice < activeOld.c) { currentScalp = 'SELL TICK'; } 
                     else if (currentScalp === 'ANALYZING' || currentScalp.includes('WAITING') || !activeOld) { currentScalp = dailyPct > 0 ? 'MICRO UPTREND' : 'MICRO DOWNTREND'; }
 
                     const dayLogic = dailyPct > 0.5 ? 'STRONG BUY' : dailyPct < -0.5 ? 'STRONG SELL' : dailyPct > 0 ? 'BULLISH BIAS' : 'BEARISH BIAS';
@@ -335,6 +359,7 @@
                 refreshAll();
             }, [active.id]); 
 
+            // 60-second delay to protect API limits
             useEffect(() => {
                 const timer = setInterval(() => { refreshAll(); setMarketStatus(checkMarketStatus(active)); }, 60000); 
                 return () => clearInterval(timer);
@@ -396,11 +421,12 @@
                                         <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                                        <span className="number-font" style={{ fontSize: '14px', color: prices[item.id] ? '#fff' : '#444', fontWeight: '700' }}>
-                                            {prices[item.id] ? `$${prices[item.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})}` : '---'}
+                                        {/* DIAGNOSTIC PRICING LOGIC */}
+                                        <span className="number-font" style={{ fontSize: '12px', color: prices[item.id]?.error ? '#ff3d00' : (prices[item.id] ? '#fff' : '#444'), fontWeight: '700' }}>
+                                            {prices[item.id] ? (prices[item.id].error ? prices[item.id].error.substring(0,12) : `$${prices[item.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})}`) : '---'}
                                         </span>
                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                            {prices[item.id] && (
+                                            {prices[item.id] && !prices[item.id].error && (
                                                 <span className="number-font" style={{ fontSize: '10px', color: prices[item.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
                                                     {prices[item.id].dp > 0 ? '+' : ''}{prices[item.id].dp.toFixed(2)}%
                                                 </span>
@@ -421,11 +447,11 @@
                     <div className="main-area">
                         <div className="glass-panel" style={{ textAlign: 'center' }}>
                             <div style={{ fontSize: '12px', color: '#888', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>{active.name} / USD</div>
-                            <div className="number-font" style={{ fontSize: '56px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
-                                ${prices[active.id] ? prices[active.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}) : '---'}
+                            <div className="number-font" style={{ fontSize: prices[active.id]?.error ? '28px' : '56px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px', color: prices[active.id]?.error ? '#ff3d00' : '#fff' }}>
+                                {prices[active.id] ? (prices[active.id].error ? prices[active.id].error : `$${prices[active.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})}`) : '---'}
                             </div>
                             <div className="number-font" style={{ fontSize: '14px', fontWeight: '800', color: prices[active.id] && prices[active.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
-                                {prices[active.id] ? `${prices[active.id].dp > 0 ? '+' : ''}${prices[active.id].dp.toFixed(2)}% (24H)` : '0.00%'}
+                                {prices[active.id] && !prices[active.id].error ? `${prices[active.id].dp > 0 ? '+' : ''}${prices[active.id].dp.toFixed(2)}% (24H)` : '0.00%'}
                             </div>
                         </div>
 
