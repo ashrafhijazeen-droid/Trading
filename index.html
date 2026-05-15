@@ -40,7 +40,7 @@
         const { useState, useEffect, useRef } = React;
 
         // ==========================================
-        // 🔑 FULLY INJECTED MASTER API KEYS
+        // 🔑 API KEYS INJECTED
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
         const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk'; 
@@ -88,14 +88,13 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY V22
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v22');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v23');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v22', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v23', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -151,64 +150,6 @@
                 setSessionBanner({ open: openMarkets.length > 0 ? openMarkets.join(' & ') : 'MARKETS CLOSED', next: nextMarket.name, time: nextDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) });
             };
 
-            const getMarketData = async (item) => {
-                try {
-                    // ==========================================
-                    // 🛡️ DUAL-PROXY FCS ENGINE (Bypasses CORS)
-                    // ==========================================
-                    if (item.type === 'FCS') {
-                        if (!FCS_API_KEY) return null; 
-                        
-                        const targetUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`;
-                        
-                        // Proxy 1: AllOrigins
-                        let r = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
-                        
-                        // Proxy 2 Fallback: If AllOrigins fails, try CORSProxy.io
-                        if (!r.ok) {
-                            r = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
-                        }
-
-                        if (!r.ok) {
-                            console.error(`Both proxies failed for ${item.tag}`);
-                            return null;
-                        }
-
-                        const d = await r.json();
-                        
-                        // Check if FCS rejected the request (e.g. out of free credits)
-                        if (d.status === false) {
-                            console.error(`FCS API Rejected Request for ${item.tag}. Message:`, d.msg);
-                            return null;
-                        }
-
-                        if (d.status && d.response && d.response.length > 0) {
-                            const data = d.response[0];
-                            const currentPrice = parseFloat(data.c || data.price || 0);
-                            const rawPct = data.cp || data.chg_per || "0";
-                            const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
-                            return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
-                        }
-                        return null;
-                    } 
-                    else if (item.type === 'BINANCE_S') {
-                        const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
-                        if (!r.ok) return null;
-                        const d = await r.json();
-                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
-                    }
-                    else if (item.type === 'FINNHUB') {
-                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY}`);
-                        if (!r.ok) return null;
-                        const d = await r.json();
-                        return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
-                    }
-                } catch (e) { 
-                    console.error(`Fetch crashed for ${item.id}:`, e);
-                    return null; 
-                }
-            };
-
             const getNews = async (symbolData) => {
                 try {
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`;
@@ -242,17 +183,69 @@
                 return { text: 'LIVE FEED', color: '#00e676' };
             };
 
+            // ==========================================
+            // 🚀 THE ISOLATED BATCH ENGINE
+            // ==========================================
             const refreshAll = async () => {
                 updateGlobalSessions(); 
+                const newPrices = {};
 
-                const fetchPromises = list.map(async (item) => {
-                    try { const data = await getMarketData(item); return { id: item.id, data }; } 
-                    catch (err) { return { id: item.id, data: null }; }
+                // 1. ISOLATED FCS BATCH (Only uses 1 credit for all metals/forex!)
+                const fcsItems = list.filter(i => i.type === 'FCS');
+                if (fcsItems.length > 0 && FCS_API_KEY) {
+                    try {
+                        const tags = fcsItems.map(i => i.tag).join(',');
+                        let d;
+                        
+                        try {
+                            // Try lightning-fast direct fetch
+                            const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${tags}&access_key=${FCS_API_KEY}`);
+                            d = await r.json();
+                        } catch (err) {
+                            // If local file:// blocks it, route through the JSON-wrapper proxy
+                            console.warn("Direct FCS fetch blocked by browser. Using wrapper proxy...");
+                            const proxyUrl = encodeURIComponent(`https://fcsapi.com/api-v3/forex/latest?symbol=${tags}&access_key=${FCS_API_KEY}`);
+                            const r = await fetch(`https://api.allorigins.win/get?url=${proxyUrl}`);
+                            const proxyData = await r.json();
+                            d = JSON.parse(proxyData.contents);
+                        }
+
+                        if (d.status && d.response) {
+                            d.response.forEach(data => {
+                                const matchedItem = fcsItems.find(i => i.tag === data.s);
+                                if (matchedItem) {
+                                    const currentPrice = parseFloat(data.c || data.price || 0);
+                                    const rawPct = data.cp || data.chg_per || "0";
+                                    const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
+                                    newPrices[matchedItem.id] = { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
+                                }
+                            });
+                        } else {
+                            console.error("FCS API Rejected Request:", d.msg);
+                        }
+                    } catch (e) {
+                        console.error("FCS Batch Fetch Completely Failed:", e);
+                    }
+                }
+
+                // 2. ISOLATED BINANCE & FINNHUB (Promise All)
+                const otherItems = list.filter(i => i.type !== 'FCS');
+                const fetchPromises = otherItems.map(async (item) => {
+                    try {
+                        if (item.type === 'BINANCE_S') {
+                            const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
+                            const d = await r.json();
+                            return { id: item.id, data: { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) } };
+                        } else if (item.type === 'FINNHUB') {
+                            const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY}`);
+                            const d = await r.json();
+                            return { id: item.id, data: d.c ? { c: d.c, dp: d.dp || 0 } : null };
+                        }
+                    } catch (e) { return { id: item.id, data: null }; }
                 });
 
                 const results = await Promise.all(fetchPromises);
-                const newPrices = {};
-                results.forEach(res => { if (res.data !== null) newPrices[res.id] = res.data; });
+                results.forEach(res => { if (res && res.data) newPrices[res.id] = res.data; });
 
                 setPrices(prev => {
                     const current = { ...prev };
@@ -342,7 +335,6 @@
                 refreshAll();
             }, [active.id]); 
 
-            // Hard 60 second delay to protect FCS API credits
             useEffect(() => {
                 const timer = setInterval(() => { refreshAll(); setMarketStatus(checkMarketStatus(active)); }, 60000); 
                 return () => clearInterval(timer);
