@@ -102,7 +102,7 @@
         // 🔑 FULLY INJECTED MASTER API KEYS
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk';
+        const FCS_API_KEY = 'uovfAJP7KcroV2D6Cyv0C'; // <-- YOUR NEW KEY INJECTED
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -149,9 +149,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY V16 - Hard reset for the newly injected key
+            // MEMORY V17 - Hard reset for the newly injected key and bulletproof parser
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v16');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v17');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -159,7 +159,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v16', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v17', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -244,32 +244,33 @@
 
             const getMarketData = async (item) => {
                 try {
-                    // THE FCS SPOT ENGINE ($10/mo budget)
                     if (item.type === 'FCS') {
-                        if (!FCS_API_KEY || FCS_API_KEY === 'PUT_YOUR_FCS_API_KEY_HERE') return null; 
+                        if (!FCS_API_KEY) return null; 
                         
                         const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         
-                        // FCS returns "price" and "chg_per"
+                        // FIXED: Bullet-proofed parsing to handle ANY format FCS throws at us
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
-                            const currentPrice = parseFloat(data.price || data.c);
-                            const pct = data.chg_per ? parseFloat(data.chg_per.replace('%', '').replace('+', '')) : 0;
+                            const currentPrice = parseFloat(data.c || data.price || 0);
+                            
+                            // Grabs the change percentage whether they label it 'cp' or 'chg_per'
+                            const rawPct = data.cp || data.chg_per || "0";
+                            const pct = parseFloat(String(rawPct).replace('%', '').replace('+', ''));
+                            
                             return { c: currentPrice, dp: pct };
                         }
                         return null;
                     } 
                     else if (item.type === 'BINANCE_S') {
-                        // Free Crypto Engine
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
                     }
                     else if (item.type === 'FINNHUB') {
-                        // Free Stocks Engine
                         const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
@@ -428,7 +429,6 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // SMART ROUTER V14: Maps true Spot to FCS format
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
