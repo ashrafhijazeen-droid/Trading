@@ -98,14 +98,14 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // FIXED V11: Perfect Parity Matrix. The Chart TV tag strictly matches the Math Fetch tag.
+        // FIXED V12: Removed all broken Forex/Futures routing. 100% Parity via ETF mapping.
         const DEFAULT_WATCHLIST = [
-            { id: 'XAU', name: 'SPOT GOLD', tag: 'XAUUSDT', tv: 'BINANCE:XAUUSDT', type: 'BINANCE_F', market: 'COMMODITIES' },
-            { id: 'XAG', name: 'SPOT SILVER', tag: 'XAGUSDT', tv: 'BINANCE:XAGUSDT', type: 'BINANCE_F', market: 'COMMODITIES' },
-            { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'FINNHUB', market: 'US EQUITIES' },
-            { id: 'US30', name: 'DOW JONES (DIA)', tag: 'DIA', tv: 'AMEX:DIA', type: 'FINNHUB', market: 'US EQUITIES' },
-            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'BINANCE:EURUSDT', type: 'BINANCE_F', market: 'FOREX' },
-            { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSDT', type: 'BINANCE_S', market: 'CRYPTO' }
+            { id: 'GLD', name: 'GOLD (ETF)', tag: 'GLD', tv: 'AMEX:GLD', type: 'F', market: 'COMMODITIES' },
+            { id: 'SLV', name: 'SILVER (ETF)', tag: 'SLV', tv: 'AMEX:SLV', type: 'F', market: 'COMMODITIES' },
+            { id: 'DIA', name: 'DOW JONES (ETF)', tag: 'DIA', tv: 'AMEX:DIA', type: 'F', market: 'US EQUITIES' },
+            { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', market: 'US EQUITIES' },
+            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'BINANCE:EURUSDT', type: 'B', market: 'FOREX' },
+            { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSDT', type: 'B', market: 'CRYPTO' }
         ];
 
         function WorldClock() {
@@ -144,7 +144,7 @@
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v11');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v12');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -152,7 +152,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v11', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v12', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -239,23 +239,15 @@
 
             const getMarketData = async (item) => {
                 try {
-                    // THE IRONCLAD ENGINE: Zero Proxies. Zero BS.
-                    if (item.type === 'BINANCE_F') {
-                        // Binance Futures API for true Spot Metals & Forex tracking
-                        const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${item.tag}`);
-                        if (!r.ok) return null;
-                        const d = await r.json();
-                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
-                    } 
-                    else if (item.type === 'BINANCE_S') {
-                        // Binance Spot API for normal Crypto
+                    if (item.type === 'B') {
+                        // Strict Binance Spot Routing
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
-                    }
-                    else if (item.type === 'FINNHUB') {
-                        // Finnhub purely for US Stocks/ETFs
+                    } 
+                    else {
+                        // Strict Finnhub Routing (for US Stocks and ETFs)
                         const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
@@ -266,9 +258,8 @@
 
             const getNews = async (symbolData) => {
                 try {
-                    // Only fetch stock news to prevent Finnhub from blocking Forex queries
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
-                    if (symbolData.type === 'FINNHUB' && symbolData.id !== 'SPY' && symbolData.id !== 'US30') {
+                    if (symbolData.type === 'F' && symbolData.id !== 'SPY') {
                         const today = new Date().toISOString().split('T')[0];
                         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
                         endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.tag}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
@@ -344,7 +335,6 @@
                         fund: { score: fundScore, label: fundLabel, buzz: buzzLevel }
                     });
 
-                    // Safeguard calculation preventing NaN or wildly large stops
                     const safeDailyPct = isNaN(dailyPct) ? 0 : dailyPct;
                     const baseVolatility = Math.max(Math.abs(safeDailyPct) / 100, 0.002); 
                     
@@ -416,47 +406,48 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // SMART ROUTER V11: Hard-links TV charts to the fetch source
+            // STRICT ROUTER: Only allows true ETFs and Spot Crypto to ensure exact 1:1 Parity
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
                     
-                    let apiType = 'FINNHUB';
+                    let apiType = 'F';
                     let fetchTag = rawTicker;
                     let tvTag = rawTicker;
                     let marketType = 'US EQUITIES';
                     let displayName = rawTicker;
 
-                    if (rawTicker === 'US30' || rawTicker === 'DOW') {
-                        apiType = 'FINNHUB';
+                    if (rawTicker === 'US30' || rawTicker === 'DOW' || rawTicker === 'DIA') {
+                        apiType = 'F';
                         fetchTag = 'DIA';
                         tvTag = 'AMEX:DIA'; 
-                        displayName = 'US30';
+                        marketType = 'US EQUITIES';
+                        displayName = 'DIA';
                     }
-                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
-                        apiType = 'BINANCE_F';
-                        fetchTag = 'XAGUSDT';
-                        tvTag = 'BINANCE:XAGUSDT'; // Hard linked to math
+                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER' || rawTicker === 'SLV') {
+                        apiType = 'F';
+                        fetchTag = 'SLV';
+                        tvTag = 'AMEX:SLV'; 
                         marketType = 'COMMODITIES';
-                        displayName = 'XAG';
+                        displayName = 'SLV';
                     }
-                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
-                        apiType = 'BINANCE_F';
-                        fetchTag = 'XAUUSDT';
-                        tvTag = 'BINANCE:XAUUSDT'; // Hard linked to math
+                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD' || rawTicker === 'GLD') {
+                        apiType = 'F';
+                        fetchTag = 'GLD';
+                        tvTag = 'AMEX:GLD'; 
                         marketType = 'COMMODITIES';
-                        displayName = 'XAU';
+                        displayName = 'GLD';
                     }
                     else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
-                        apiType = 'BINANCE_F';
+                        apiType = 'B';
                         fetchTag = rawTicker.replace('USD', 'USDT'); 
-                        tvTag = `BINANCE:${fetchTag}`; // Hard linked
+                        tvTag = `BINANCE:${fetchTag}`; 
                         marketType = 'FOREX';
                         displayName = rawTicker;
                     } 
                     else if (rawTicker === 'BTC' || rawTicker === 'ETH' || rawTicker.endsWith('USDT')) {
                         const cleanCrypto = rawTicker.replace('USDT', '');
-                        apiType = 'BINANCE_S';
+                        apiType = 'B';
                         fetchTag = `${cleanCrypto}USDT`;
                         tvTag = `BINANCE:${cleanCrypto}USDT`; 
                         marketType = 'CRYPTO';
@@ -545,7 +536,7 @@
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. GBPUSD)" 
+                                placeholder="Add ticker (e.g. AAPL)" 
                                 style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
                             />
                             <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
@@ -660,7 +651,7 @@
                                     </div>
                                 </a>
                             )) : (
-                                <div style={{ fontSize: '12px', color: '#555', fontStyle: 'italic', textAlign: 'center', padding: '40px 0' }}>Market Feed Active. Scanning...</div>
+                                <div style={{ fontSize: '12px', color: '#555', fontStyle: 'italic', textAlign: 'center', padding: '40px 0' }}>Fetching latest headlines...</div>
                             )}
                         </div>
                     </div>
