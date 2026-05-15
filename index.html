@@ -49,8 +49,6 @@
 
         .neon-text-green { color: #00e676; text-shadow: 0 0 10px rgba(0, 230, 118, 0.3); }
         .neon-text-red { color: #ff3d00; text-shadow: 0 0 10px rgba(255, 61, 0, 0.3); }
-        .neon-text-blue { color: #00bfff; text-shadow: 0 0 10px rgba(0, 191, 255, 0.3); }
-        .neon-text-amber { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
         
         .number-font { font-family: 'JetBrains Mono', monospace; }
         input::placeholder { color: #555; font-family: 'Inter', sans-serif; }
@@ -143,7 +141,7 @@
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v2');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v3');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -151,7 +149,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v2', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v3', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -406,44 +404,47 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // --- THE FIX: SMART ASSET ROUTER ---
+            // --- THE FIX: SMART ROUTER FOR US30 ---
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
                     
-                    // Don't add if it already exists (ignoring the T suffix)
-                    if (!list.find(item => item.id === rawTicker || item.id === rawTicker.replace('USDT', 'USD'))) {
-                        
-                        let apiType = 'F';
-                        let fetchTag = rawTicker;
-                        let tvTag = rawTicker;
-                        let marketType = 'EQUITIES';
+                    let apiType = 'F';
+                    let fetchTag = rawTicker;
+                    let tvTag = rawTicker;
+                    let marketType = 'EQUITIES';
+                    let displayName = rawTicker;
 
-                        // Smart Routing Logic
-                        if (rawTicker.endsWith('USD') && rawTicker.length >= 6) {
-                            // Forex or Metals (e.g. GBPUSD, XAGUSD) -> Route to Binance for free data
-                            apiType = 'B';
-                            fetchTag = rawTicker.replace('USD', 'USDT'); 
-                            tvTag = rawTicker.startsWith('X') ? `OANDA:${rawTicker}` : `FX:${rawTicker}`;
-                            marketType = rawTicker.startsWith('X') ? 'COMMODITIES' : 'FOREX';
-                        } else if (rawTicker.endsWith('USDT') || rawTicker === 'BTC' || rawTicker === 'ETH') {
-                            // Crypto -> Route to Binance
-                            apiType = 'B';
-                            fetchTag = rawTicker.endsWith('USDT') ? rawTicker : `${rawTicker}USDT`;
-                            tvTag = `BINANCE:${fetchTag}`;
-                            marketType = 'CRYPTO';
-                        }
+                    // Intercept US30 and map it to the Dow ETF (DIA) for free Finnhub pricing
+                    if (rawTicker === 'US30' || rawTicker === 'DOW') {
+                        apiType = 'F';
+                        fetchTag = 'DIA';
+                        tvTag = 'CURRENCYCOM:US30';
+                        marketType = 'US EQUITIES';
+                        displayName = 'US30';
+                    }
+                    else if (rawTicker.endsWith('USD') && rawTicker.length >= 6) {
+                        apiType = 'B';
+                        fetchTag = rawTicker.replace('USD', 'USDT'); 
+                        tvTag = rawTicker.startsWith('X') ? `OANDA:${rawTicker}` : `FX:${rawTicker}`;
+                        marketType = rawTicker.startsWith('X') ? 'COMMODITIES' : 'FOREX';
+                    } else if (rawTicker.endsWith('USDT') || rawTicker === 'BTC' || rawTicker === 'ETH') {
+                        apiType = 'B';
+                        fetchTag = rawTicker.endsWith('USDT') ? rawTicker : `${rawTicker}USDT`;
+                        tvTag = `BINANCE:${fetchTag}`;
+                        marketType = 'CRYPTO';
+                    }
 
+                    if (!list.find(item => item.id === displayName || item.id === displayName.replace('USDT', 'USD'))) {
                         const newItem = { 
-                            id: rawTicker.replace('USDT', 'USD'), // Keep UI clean
-                            name: rawTicker.replace('USDT', 'USD'), 
+                            id: displayName.replace('USDT', 'USD'), 
+                            name: displayName.replace('USDT', 'USD'), 
                             tag: fetchTag, 
                             tv: tvTag, 
                             type: apiType, 
-                            search: rawTicker.replace('USDT', ''), 
+                            search: displayName.replace('USDT', ''), 
                             market: marketType 
                         };
-                        
                         setList([...list, newItem]); 
                     }
                     setNewTicker(''); 
@@ -517,7 +518,7 @@
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. GBPUSD)" 
+                                placeholder="Add ticker (e.g. US30)" 
                                 style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
                             />
                             <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
@@ -554,14 +555,15 @@
                             })}
                         </div>
 
+                        {/* --- THE FIX: RIGID GRID FOR TRADE SETUPS --- */}
                         <div className="glass-panel" style={{ padding: '20px 16px', borderTop: '3px solid #888' }}>
                             <div style={{ fontSize: '11px', color: '#fff', fontWeight: '900', letterSpacing: '1px', marginBottom: '16px' }}>AI TRADE SETUPS BY TIMEFRAME</div>
                             
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#666', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '12px' }}>
-                                <div style={{ width: '28%' }}>STRATEGY</div>
-                                <div style={{ width: '24%', textAlign: 'center' }}>ENTRY</div>
-                                <div style={{ width: '24%', textAlign: 'center', color: '#00e676' }}>TARGET</div>
-                                <div style={{ width: '24%', textAlign: 'right', color: '#ff3d00' }}>STOP LOSS</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: '5px', fontSize: '9px', color: '#666', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '12px' }}>
+                                <div>STRATEGY</div>
+                                <div style={{ textAlign: 'center' }}>ENTRY</div>
+                                <div style={{ textAlign: 'center', color: '#00e676' }}>TARGET</div>
+                                <div style={{ textAlign: 'right', color: '#ff3d00' }}>STOP LOSS</div>
                             </div>
 
                             {[
@@ -569,14 +571,14 @@
                                 { label: 'DAY', data: tradeSetups.day, desc: '1H - 24H' },
                                 { label: 'SWING', data: tradeSetups.swing, desc: '1D - 1W' }
                             ].map((row, i) => (
-                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                                    <div style={{ width: '28%' }}>
+                                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: '5px', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                                    <div>
                                         <div style={{ fontSize: '11px', fontWeight: '900', color: row.data.type === 'LONG' ? '#00e676' : row.data.type === 'SHORT' ? '#ff3d00' : '#888' }}>{row.label} <span style={{ fontSize: '8px' }}>({row.data.type})</span></div>
                                         <div style={{ fontSize: '8px', color: '#888', marginTop: '2px' }}>{row.desc}</div>
                                     </div>
-                                    <div className="number-font" style={{ width: '24%', textAlign: 'center', fontSize: '12px', fontWeight: '800' }}>{row.data.entry !== '...' ? '$' + row.data.entry : '...'}</div>
-                                    <div className="number-font" style={{ width: '24%', textAlign: 'center', fontSize: '12px', fontWeight: '800', color: '#00e676' }}>{row.data.tp !== '...' ? '$' + row.data.tp : '...'}</div>
-                                    <div className="number-font" style={{ width: '24%', textAlign: 'right', fontSize: '12px', fontWeight: '800', color: '#ff3d00' }}>{row.data.sl !== '...' ? '$' + row.data.sl : '...'}</div>
+                                    <div className="number-font" style={{ textAlign: 'center', fontSize: '12px', fontWeight: '800' }}>{row.data.entry !== '...' ? '$' + row.data.entry : '...'}</div>
+                                    <div className="number-font" style={{ textAlign: 'center', fontSize: '12px', fontWeight: '800', color: '#00e676' }}>{row.data.tp !== '...' ? '$' + row.data.tp : '...'}</div>
+                                    <div className="number-font" style={{ textAlign: 'right', fontSize: '12px', fontWeight: '800', color: '#ff3d00' }}>{row.data.sl !== '...' ? '$' + row.data.sl : '...'}</div>
                                 </div>
                             ))}
                         </div>
