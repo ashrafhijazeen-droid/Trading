@@ -45,7 +45,7 @@
         // 🔑 API KEYS INJECTED
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'bJDUDT4iQe56HlsTgpJPjFIndRhAZ'; // FIXED: Exact correct key restored
+        const FCS_API_KEY = 'w0zDB2B4PDGVaAR2c7srTsD2ZEz'; // <-- NEW KEY INJECTED
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -90,14 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY V27
+            // DIAGNOSTIC MEMORY V28
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v27');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v28');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v27', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v28', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -119,8 +119,6 @@
             const [marketStatus, setMarketStatus] = useState({ text: 'CHECKING...', color: '#f59e0b' });
             const [newTicker, setNewTicker] = useState('');
             const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
-            
-            // Rate Limit Timer
             const [countdown, setCountdown] = useState(60);
 
             const updateGlobalSessions = () => {
@@ -159,7 +157,7 @@
             const getMarketData = async (item) => {
                 try {
                     // ==========================================
-                    // 🛡️ RATE-LIMITED FCS ENGINE
+                    // 🛡️ DIAGNOSTIC FCS ENGINE
                     // ==========================================
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return { error: 'NO_KEY_FOUND' }; 
@@ -169,18 +167,30 @@
                         const directUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${encodedTag}&access_key=${FCS_API_KEY}&cb=${cacheBuster}`;
                         
                         let r;
+
+                        // Attempt 1: Direct connection
                         try {
                             r = await fetch(directUrl);
                         } catch (err) {
+                            // Direct connection blocked (CORS). Attempt 2: Proxy
                             const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-                            try { r = await fetch(proxyUrl); } catch (proxyErr) { return { error: 'CORS_BLOCK' }; }
+                            try {
+                                r = await fetch(proxyUrl);
+                            } catch (proxyErr) {
+                                return { error: 'CORS_BLOCK' };
+                            }
                         }
 
                         if (!r.ok) return { error: `HTTP_${r.status}` };
+                        
                         const d = await r.json();
                         
-                        if (d.status === false) return { error: d.msg || 'FCS_REJECT' };
+                        // If FCS intentionally rejects us, grab their exact error message
+                        if (d.status === false) {
+                            return { error: d.msg || 'FCS_REJECT' };
+                        }
 
+                        // Success! Parse the data.
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
                             const currentPrice = parseFloat(data.c || data.price || 0);
@@ -188,6 +198,7 @@
                             const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
                             return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
                         }
+
                         return { error: 'NO_DATA' };
                     } 
                     else if (item.type === 'BINANCE_S') {
@@ -202,7 +213,9 @@
                         const d = await r.json();
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : { error: 'NO_FINN_DATA' };
                     }
-                } catch (e) { return { error: 'CRASH' }; }
+                } catch (e) { 
+                    return { error: 'CRASH' }; 
+                }
             };
 
             const getNews = async (symbolData) => {
@@ -263,9 +276,6 @@
                 });
             };
 
-            // ==========================================
-            // 🧠 CACHE-ONLY MATH ENGINE (No API Burns!)
-            // ==========================================
             useEffect(() => {
                 const activeData = prices[active.id];
                 const activeOld = prevPrices.current[active.id];
@@ -337,10 +347,6 @@
                 prevPrices.current[active.id] = activeData;
             }, [prices, active.id]);
 
-            // ==========================================
-            // 🛑 DECOUPLED TAB SWITCHING
-            // Changing tabs ONLY grabs news and updates the UI cache. No API burns!
-            // ==========================================
             useEffect(() => {
                 setSignals({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
                 setAnalysis({ tech: { rsi: '...', label: 'ANALYZING', trend: '...' }, fund: { score: '...', label: 'ANALYZING', buzz: '...' } });
@@ -350,9 +356,7 @@
                 setMarketStatus(checkMarketStatus(active));
             }, [active.id]); 
 
-            // ==========================================
-            // ⏱️ STRICT 60-SECOND BACKGROUND TIMER
-            // ==========================================
+            // 60-second delay to protect API limits
             useEffect(() => {
                 refreshAll();
                 setCountdown(60);
@@ -413,7 +417,6 @@
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
                         <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}</div>
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
-                        {/* THE TIMER UI */}
                         <div style={{ fontSize: '11px', fontWeight: '900', color: countdown <= 10 ? '#ff3d00' : '#00bfff', letterSpacing: '1px', textTransform: 'uppercase' }}>
                             🔄 DATA REFRESH: <span className="number-font">{countdown}s</span>
                         </div>
