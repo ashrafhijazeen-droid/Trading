@@ -99,10 +99,10 @@
         const { useState, useEffect, useRef } = React;
 
         // ==========================================
-        // 🔑 FULLY INJECTED MASTER API KEYS
+        // 🔑 API KEYS
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'bJDUDT4iQe56HlsTgpJPjFIndRhAZ';
+        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk'; 
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -245,16 +245,27 @@
             const getMarketData = async (item) => {
                 try {
                     if (item.type === 'FCS') {
-                        if (!FCS_API_KEY || FCS_API_KEY === 'PUT_YOUR_FCS_API_KEY_HERE') return null; 
+                        if (!FCS_API_KEY) return null; 
                         
-                        const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
+                        // FIX: Added a Cache Buster and CORS Proxy so local files can fetch without being blocked!
+                        const cacheBuster = Date.now();
+                        const targetUrl = encodeURIComponent(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}&cb=${cacheBuster}`);
+                        const url = `https://api.allorigins.win/raw?url=${targetUrl}`;
+
+                        const r = await fetch(url);
                         if (!r.ok) return null;
                         const d = await r.json();
                         
+                        // Debugging Tool: Logs the error to console if FCS rejects the key
+                        if (d.status === false) {
+                            console.error(`FCS API Error for ${item.tag}:`, d.msg);
+                            return null;
+                        }
+
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
-                            const currentPrice = parseFloat(data.c || data.price || 0);
-                            const rawPct = data.cp || data.chg_per || "0";
+                            const currentPrice = parseFloat(data.price || data.c || 0);
+                            const rawPct = data.chg_per || data.cp || "0";
                             const pct = parseFloat(String(rawPct).replace('%', '').replace('+', ''));
                             return { c: currentPrice, dp: pct };
                         }
@@ -353,19 +364,14 @@
                         fund: { score: fundScore, label: fundLabel, buzz: buzzLevel }
                     });
 
-                    // ==========================================
-                    // 🧠 FIXED: ASSET-AWARE VOLATILITY & MARKET ENTRIES
-                    // ==========================================
                     const safeDailyPct = isNaN(dailyPct) ? 0 : dailyPct;
                     
-                    // Determine baseline noise for the asset class
-                    let assetBaseVol = 0.01; // Default 1%
-                    if (active.market === 'FOREX') assetBaseVol = 0.003; // Forex moves are tiny (0.3%)
-                    else if (active.market === 'COMMODITIES') assetBaseVol = 0.01; // Metals move ~1%
-                    else if (active.market === 'US EQUITIES') assetBaseVol = 0.015; // Stocks move ~1.5%
-                    else if (active.market === 'CRYPTO') assetBaseVol = 0.04; // Crypto moves fast (4%)
+                    let assetBaseVol = 0.01; 
+                    if (active.market === 'FOREX') assetBaseVol = 0.003; 
+                    else if (active.market === 'COMMODITIES') assetBaseVol = 0.01; 
+                    else if (active.market === 'US EQUITIES') assetBaseVol = 0.015; 
+                    else if (active.market === 'CRYPTO') assetBaseVol = 0.04; 
 
-                    // Blend asset defaults with what it's actually doing today
                     const baseVolatility = Math.max(Math.abs(safeDailyPct) / 100, assetBaseVol); 
                     
                     let scalpDir = 1;
@@ -379,8 +385,6 @@
                     const generateSetup = (dir, volMult, rewardRatio) => {
                         const riskAmount = baseVolatility * volMult;
                         const rewardAmount = riskAmount * rewardRatio;
-                        
-                        // FIX: Entry is now always exactly the current price to prevent confusion
                         const entryPrice = currentPrice;
                         
                         if (dir === 1) { 
@@ -401,9 +405,9 @@
                     };
 
                     setTradeSetups({
-                        scalp: generateSetup(scalpDir, 0.15, 1.5), // Very tight risk for 15m
-                        day: generateSetup(dayDir, 0.50, 2.0),   // Moderate risk for intraday
-                        swing: generateSetup(swingDir, 1.50, 3.0)  // Wide risk for multi-day
+                        scalp: generateSetup(scalpDir, 0.15, 1.5),
+                        day: generateSetup(dayDir, 0.50, 2.0),
+                        swing: generateSetup(swingDir, 1.50, 3.0)
                     });
                 }
 
@@ -493,6 +497,7 @@
                             tag: fetchTag, 
                             tv: tvTag, 
                             type: apiType, 
+                            search: displayName.replace('USD', ''), 
                             market: marketType 
                         };
                         setList([...list, newItem]); 
