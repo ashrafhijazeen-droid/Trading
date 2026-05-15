@@ -102,7 +102,7 @@
         // 🔑 FULLY INJECTED MASTER API KEYS
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk';
+        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk'; 
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -149,8 +149,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
+            // MEMORY V20 - Purges the proxy lag history
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v19');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v20');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -158,7 +159,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v19', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v20', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -179,8 +180,63 @@
 
             const [newsFeed, setNewsFeed] = useState([]);
             const [marketStatus, setMarketStatus] = useState({ text: 'CHECKING...', color: '#f59e0b' });
-            const [newTicker, setNewTicker] = useState('');
             const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
+            const [newTicker, setNewTicker] = useState('');
+
+            // ==========================================
+            // 🌐 NATIVE WEBSOCKET ENGINE (FCS API)
+            // ==========================================
+            useEffect(() => {
+                let ws;
+                try {
+                    ws = new WebSocket(`wss://fcsapi.com/v3/ws?key=${FCS_API_KEY}`);
+                    
+                    ws.onopen = () => {
+                        console.log("FCS WebSocket Connected Successfully");
+                        // Subscribe to all FCS symbols currently in our list
+                        const fcsTags = list.filter(i => i.type === 'FCS').map(i => i.tag);
+                        if(fcsTags.length > 0) {
+                            ws.send(JSON.stringify({ action: "subscribe", symbol: fcsTags.join(',') }));
+                        }
+                    };
+
+                    ws.onmessage = (event) => {
+                        try {
+                            const response = JSON.parse(event.data);
+                            // Log raw WS data to the console to see what FCS is sending
+                            console.log("WS Data Received:", response); 
+                            
+                            const symbol = response.s || response.symbol;
+                            const currentPrice = parseFloat(response.c || response.price || response.p);
+                            const rawPct = response.cp || response.chg_per || "0";
+                            const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
+
+                            if (symbol && currentPrice) {
+                                const matchedItem = list.find(i => i.tag === symbol);
+                                if (matchedItem) {
+                                    setPrices(prev => ({
+                                        ...prev,
+                                        [matchedItem.id]: { c: currentPrice, dp: pct }
+                                    }));
+                                }
+                            }
+                        } catch(err) {
+                            console.error("WS Parsing Error:", err);
+                        }
+                    };
+
+                    ws.onerror = (err) => console.error("FCS WebSocket Connection Error:", err);
+
+                } catch (err) {
+                    console.error("Could not establish WebSocket:", err);
+                }
+
+                // Cleanup tunnel when component unmounts
+                return () => {
+                    if (ws) ws.close();
+                };
+            }, [list]); 
+            // ==========================================
 
             const updateGlobalSessions = () => {
                 const now = new Date();
@@ -243,29 +299,17 @@
 
             const getMarketData = async (item) => {
                 try {
+                    // DIRECT REST FALLBACK (If WebSocket fails, it calls direct without the proxy)
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return null; 
                         
-                        // FIX: Added CORS Proxy to bypass browser security blocks safely
-                        const targetUrl = encodeURIComponent(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
-                        const url = `https://api.allorigins.win/raw?url=${targetUrl}`;
-
-                        const r = await fetch(url);
-                        if (!r.ok) {
-                            console.error(`CORS Proxy failed for ${item.tag}`);
-                            return null;
-                        }
+                        const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
+                        if (!r.ok) return null;
                         const d = await r.json();
                         
-                        // Error logging if FCS API rejects the key
-                        if (d.status === false) {
-                            console.error(`FCS API Error for ${item.tag}:`, d.msg);
-                            return null;
-                        }
-
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
-                            const currentPrice = parseFloat(data.c || data.price || 0);
+                            const currentPrice = parseFloat(data.price || data.c || 0);
                             const rawPct = data.cp || data.chg_per || "0";
                             const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
                             return { c: currentPrice, dp: pct };
@@ -285,7 +329,7 @@
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
                     }
                 } catch (e) { 
-                    console.error(`Fetch crashed for ${item.id}:`, e);
+                    console.error(`REST Fetch Failed for ${item.id}:`, e);
                     return null; 
                 }
             };
@@ -326,7 +370,7 @@
             const refreshAll = async () => {
                 updateGlobalSessions(); 
 
-                // FIX: Concurrent fetching. Prevents one broken API from freezing the rest.
+                // ISOLATED PROMISE LOOP: If one fails, it safely ignores it and loads the rest!
                 const fetchPromises = list.map(async (item) => {
                     try {
                         const data = await getMarketData(item);
@@ -337,17 +381,28 @@
                 });
 
                 const results = await Promise.all(fetchPromises);
+                
                 const newPrices = {};
                 results.forEach(res => {
-                    if (res.data) newPrices[res.id] = res.data;
+                    if (res.data !== null) newPrices[res.id] = res.data;
                 });
 
-                const activeNew = newPrices[active.id];
+                // Safely update state without crashing
+                setPrices(prev => {
+                    const current = { ...prev };
+                    Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
+                    return current;
+                });
+            };
+
+            // Calculate Math independently whenever Active Price changes
+            useEffect(() => {
+                const activeData = prices[active.id];
                 const activeOld = prevPrices.current[active.id];
 
-                if (activeNew) {
-                    const currentPrice = activeNew.c;
-                    const dailyPct = activeNew.dp; 
+                if (activeData) {
+                    const currentPrice = activeData.c;
+                    const dailyPct = activeData.dp; 
                     
                     let currentScalp = prevSignals.current.scalping; 
                     if (activeOld && currentPrice > activeOld.c) {
@@ -423,32 +478,17 @@
                         swing: generateSetup(swingDir, 1.50, 3.0)
                     });
                 }
-
-                setPrices(prev => {
-                    const current = { ...prev };
-                    Object.keys(newPrices).forEach(k => { current[k] = newPrices[k]; });
-                    prevPrices.current = current; 
-                    return current;
-                });
-            };
+                
+                prevPrices.current[active.id] = activeData;
+            }, [prices, active.id]);
 
             useEffect(() => {
-                setSignals({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
-                setAnalysis({ 
-                    tech: { rsi: '...', label: 'ANALYZING', trend: '...' }, 
-                    fund: { score: '...', label: 'ANALYZING', buzz: '...' } 
-                });
-                setTradeSetups({ 
-                    scalp: { type: 'WAITING', entry: '...', tp: '...', sl: '...' },
-                    day: { type: 'WAITING', entry: '...', tp: '...', sl: '...' },
-                    swing: { type: 'WAITING', entry: '...', tp: '...', sl: '...' }
-                });
-
                 getNews(active);
                 setMarketStatus(checkMarketStatus(active));
                 refreshAll();
             }, [active.id]); 
 
+            // REST fallback interval polling
             useEffect(() => {
                 const timer = setInterval(() => {
                     refreshAll();
@@ -584,133 +624,4 @@
                             <input 
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
-                                onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. GBPUSD)" 
-                                style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
-                            />
-                            <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
-                        </div>
-                    </div>
-
-                    <div className="main-area">
-                        <div className="glass-panel" style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: '12px', color: '#888', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                                {active.name} / USD
-                            </div>
-                            <div className="number-font" style={{ fontSize: '56px', fontWeight: '800', margin: '4px 0', letterSpacing: '-2px' }}>
-                                ${prices[active.id] ? prices[active.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5}) : '---'}
-                            </div>
-                            <div className="number-font" style={{ fontSize: '14px', fontWeight: '800', color: prices[active.id] && prices[active.id].dp >= 0 ? '#00e676' : '#ff3d00' }}>
-                                {prices[active.id] ? `${prices[active.id].dp > 0 ? '+' : ''}${prices[active.id].dp.toFixed(2)}% (24H)` : '0.00%'}
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                            {Object.entries(signals).map(([k, v]) => {
-                                const isBuy = v.includes('BUY') || v.includes('LONG') || v.includes('BULLISH') || v.includes('UPTREND');
-                                const isSell = v.includes('SELL') || v.includes('SHORT') || v.includes('BEARISH') || v.includes('DOWNTREND');
-                                return (
-                                    <div key={k} style={{ 
-                                        padding: '16px 8px', borderRadius: '16px', textAlign: 'center', transition: '0.3s',
-                                        background: isBuy ? 'rgba(0, 230, 118, 0.05)' : isSell ? 'rgba(255, 61, 0, 0.05)' : 'rgba(255, 255, 255, 0.02)', 
-                                        border: `1px solid ${isBuy ? 'rgba(0, 230, 118, 0.3)' : isSell ? 'rgba(255, 61, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)'}`
-                                    }}>
-                                        <div style={{ fontSize: '10px', color: '#888', marginBottom: '6px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{k}</div>
-                                        <div className={isBuy ? 'neon-text-green' : isSell ? 'neon-text-red' : ''} style={{ fontSize: '12px', fontWeight: '900' }}>{v}</div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-
-                        <div className="glass-panel" style={{ padding: '20px 16px', borderTop: '3px solid #888' }}>
-                            <div style={{ fontSize: '11px', color: '#fff', fontWeight: '900', letterSpacing: '1px', marginBottom: '16px' }}>AI TRADE SETUPS BY TIMEFRAME</div>
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#666', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '12px' }}>
-                                <div style={{ flex: '1.2', minWidth: '0' }}>STRATEGY</div>
-                                <div style={{ flex: '1', textAlign: 'center', minWidth: '0' }}>ENTRY</div>
-                                <div style={{ flex: '1', textAlign: 'center', color: '#00e676', minWidth: '0' }}>TARGET</div>
-                                <div style={{ flex: '1', textAlign: 'right', color: '#ff3d00', minWidth: '0' }}>STOP LOSS</div>
-                            </div>
-
-                            {[
-                                { label: 'SCALP', data: tradeSetups.scalp, desc: '15m - 1H' },
-                                { label: 'DAY', data: tradeSetups.day, desc: '1H - 24H' },
-                                { label: 'SWING', data: tradeSetups.swing, desc: '1D - 1W' }
-                            ].map((row, i) => (
-                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                                    <div style={{ flex: '1.2', minWidth: '0' }}>
-                                        <div style={{ fontSize: '11px', fontWeight: '900', color: row.data.type === 'LONG' ? '#00e676' : row.data.type === 'SHORT' ? '#ff3d00' : '#888' }}>{row.label} <span style={{ fontSize: '8px' }}>({row.data.type})</span></div>
-                                        <div style={{ fontSize: '8px', color: '#888', marginTop: '2px' }}>{row.desc}</div>
-                                    </div>
-                                    <div className="number-font" style={{ flex: '1', textAlign: 'center', fontSize: '11px', fontWeight: '800', whiteSpace: 'nowrap' }}>{row.data.entry !== '...' ? '$' + row.data.entry : '...'}</div>
-                                    <div className="number-font" style={{ flex: '1', textAlign: 'center', fontSize: '11px', fontWeight: '800', color: '#00e676', whiteSpace: 'nowrap' }}>{row.data.tp !== '...' ? '$' + row.data.tp : '...'}</div>
-                                    <div className="number-font" style={{ flex: '1', textAlign: 'right', fontSize: '11px', fontWeight: '800', color: '#ff3d00', whiteSpace: 'nowrap' }}>{row.data.sl !== '...' ? '$' + row.data.sl : '...'}</div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
-                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #00bfff' }}>
-                                <div style={{ fontSize: '10px', color: '#00bfff', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>TECHNICAL METRICS</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>RSI (14)</span>
-                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.tech.rsi > 65 ? '#00e676' : analysis.tech.rsi < 35 && analysis.tech.rsi !== '...' ? '#ff3d00' : '#fff' }}>{analysis.tech.rsi}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>TREND</span>
-                                    <span style={{ fontSize: '11px', fontWeight: '800', color: analysis.tech.trend === 'UPWARD' ? '#00e676' : analysis.tech.trend === 'DOWNWARD' ? '#ff3d00' : '#fff' }}>{analysis.tech.trend}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                                    <span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>CONSENSUS</span>
-                                    <span className={analysis.tech.label.includes('BUY') ? 'neon-text-green' : analysis.tech.label.includes('SELL') ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.tech.label}</span>
-                                </div>
-                            </div>
-                            <div className="glass-panel" style={{ padding: '16px', borderTop: '3px solid #f59e0b' }}>
-                                <div style={{ fontSize: '10px', color: '#f59e0b', fontWeight: '900', marginBottom: '12px', letterSpacing: '1px' }}>FUNDAMENTAL BIAS</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>BULLISH SCORE</span>
-                                    <span className="number-font" style={{ fontSize: '12px', fontWeight: '800', color: analysis.fund.score > 60 ? '#00e676' : analysis.fund.score < 40 && analysis.fund.score !== '...' ? '#ff3d00' : '#fff' }}>{analysis.fund.score}{analysis.fund.score !== '...' ? '%' : ''}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '11px', color: '#888', fontWeight: '600' }}>NEWS BUZZ</span>
-                                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#fff' }}>{analysis.fund.buzz}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                                    <span style={{ fontSize: '10px', color: '#888', fontWeight: '800' }}>SENTIMENT</span>
-                                    <span className={analysis.fund.label === 'BULLISH' ? 'neon-text-green' : analysis.fund.label === 'BEARISH' ? 'neon-text-red' : ''} style={{ fontSize: '11px', fontWeight: '900' }}>{analysis.fund.label}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="glass-panel chart-container" style={{ padding: '0', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                            <iframe src={`https://s.tradingview.com/widgetembed/?symbol=${active.tv}&interval=15&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=000000&studies=[]&theme=dark&style=3`} style={{ width: '100%', height: '100%', border: 'none' }} />
-                        </div>
-                    </div>
-
-                    <div className="glass-panel right-area">
-                        <WorldClock />
-                        <div style={{ fontSize: '11px', color: '#888', fontWeight: '800', marginBottom: '16px', letterSpacing: '1px' }}>LATEST {active.id} NEWS</div>
-                        <div className="scrollable-list">
-                            {newsFeed.length > 0 ? newsFeed.map((news, idx) => (
-                                <a key={idx} href={news.url || '#'} target="_blank" style={{ textDecoration: 'none', color: 'inherit' }}>
-                                    <div style={{ background: 'rgba(0,0,0,0.3)', borderLeft: '3px solid #00e676', padding: '14px', borderRadius: '0 12px 12px 0', marginBottom: '12px', transition: '0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.3)'}>
-                                        <div style={{ fontSize: '12px', fontWeight: '600', lineHeight: '1.5', marginBottom: '6px' }}>{news.headline}</div>
-                                        {news.summary && <div style={{ fontSize: '10px', color: '#666', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', marginBottom: '8px' }}>{news.summary}</div>}
-                                        <div style={{ fontSize: '9px', color: '#00e676', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>{news.source || 'Market Feed'}</div>
-                                    </div>
-                                </a>
-                            )) : (
-                                <div style={{ fontSize: '12px', color: '#555', fontStyle: 'italic', textAlign: 'center', padding: '40px 0' }}>Fetching latest headlines...</div>
-                            )}
-                        </div>
-                    </div>
-
-                </div>
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<TradeSyncPro />);
-    </script>
-</body>
-</html>
+                                onKeyDown={(e)
