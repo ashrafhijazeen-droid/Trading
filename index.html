@@ -45,7 +45,7 @@
         // 🔑 FULLY INJECTED MASTER API KEYS
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const TWELVEDATA_API_KEY = 'e4d72d05a29143e5aa8341591271a973'; // TWELVEDATA KEY INJECTED
+        const TWELVEDATA_API_KEY = 'e4d72d05a29143e5aa8341591271a973'; 
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -90,14 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY V32 - Total flush 
+            // MEMORY V34 - Smart Batch Flush
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v32');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v34');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v32', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v34', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -155,47 +155,6 @@
                 setSessionBanner({ open: openMarkets.length > 0 ? openMarkets.join(' & ') : 'MARKETS CLOSED', next: nextMarket.name, time: nextDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) });
             };
 
-            const getMarketData = async (item) => {
-                try {
-                    // ==========================================
-                    // 🛡️ THE TWELVEDATA ENGINE (Bypasses CORS naturally)
-                    // ==========================================
-                    if (item.type === 'TWELVEDATA') {
-                        if (!TWELVEDATA_API_KEY) return { error: 'NO_KEY' }; 
-                        
-                        const r = await fetch(`https://api.twelvedata.com/quote?symbol=${item.tag}&apikey=${TWELVEDATA_API_KEY}`);
-                        if (!r.ok) return { error: `HTTP_${r.status}` };
-                        
-                        const d = await r.json();
-                        
-                        if (d.status === "error" || d.code >= 400) {
-                            return { error: d.message ? d.message.substring(0,18) + '...' : 'API_ERROR' };
-                        }
-
-                        if (d.close && d.percent_change) {
-                            const currentPrice = parseFloat(d.close);
-                            const pct = parseFloat(d.percent_change);
-                            return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
-                        }
-                        return { error: 'NO_DATA' };
-                    } 
-                    else if (item.type === 'BINANCE_S') {
-                        const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
-                        if (!r.ok) return { error: 'BINANCE_FAIL' };
-                        const d = await r.json();
-                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
-                    }
-                    else if (item.type === 'FINNHUB') {
-                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY.trim()}`);
-                        if (!r.ok) return { error: 'FINNHUB_FAIL' };
-                        const d = await r.json();
-                        return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : { error: 'NO_FINN_DATA' };
-                    }
-                } catch (e) { 
-                    return { error: 'CRASH' }; 
-                }
-            };
-
             const getNews = async (symbolData) => {
                 try {
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY.trim()}`;
@@ -231,18 +190,65 @@
 
             const refreshAll = async () => {
                 updateGlobalSessions(); 
+                const newPrices = {};
 
-                const fetchPromises = list.map(async (item) => {
-                    try { 
-                        const data = await getMarketData(item); 
-                        return { id: item.id, data }; 
-                    } catch (err) { 
-                        return { id: item.id, data: { error: 'PROMISE_FAIL' } }; 
+                // ==========================================
+                // 🛡️ THE SMART BATCH ENGINE
+                // Combines all TwelveData requests into one call to stop burst limits.
+                // ==========================================
+                const tdItems = list.filter(i => i.type === 'TWELVEDATA');
+                if (tdItems.length > 0 && TWELVEDATA_API_KEY) {
+                    try {
+                        const tags = tdItems.map(i => i.tag).join(',');
+                        const r = await fetch(`https://api.twelvedata.com/quote?symbol=${tags}&apikey=${TWELVEDATA_API_KEY}`);
+                        const d = await r.json();
+                        
+                        if (d.code && d.code >= 400) {
+                            tdItems.forEach(item => newPrices[item.id] = { error: 'API_LIMIT' });
+                        } else if (tdItems.length === 1) {
+                            // Single symbol response format
+                            if (d.close) {
+                                newPrices[tdItems[0].id] = { c: parseFloat(d.close), dp: parseFloat(d.percent_change||0) };
+                            } else {
+                                newPrices[tdItems[0].id] = { error: 'NO_DATA' };
+                            }
+                        } else {
+                            // Multi-symbol response format
+                            tdItems.forEach(item => {
+                                const data = d[item.tag];
+                                if (data && data.close) {
+                                    newPrices[item.id] = { c: parseFloat(data.close), dp: parseFloat(data.percent_change||0) };
+                                } else {
+                                    newPrices[item.id] = { error: 'TD_NO_DATA' };
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        tdItems.forEach(item => newPrices[item.id] = { error: 'CRASH' });
                     }
+                }
+
+                // ==========================================
+                // FINNHUB & BINANCE INDEPENDENT ENGINE
+                // ==========================================
+                const otherItems = list.filter(i => i.type !== 'TWELVEDATA');
+                const fetchPromises = otherItems.map(async (item) => {
+                    try {
+                        if (item.type === 'BINANCE_S') {
+                            const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
+                            if (!r.ok) return { id: item.id, data: { error: 'BINANCE_ERR' } };
+                            const d = await r.json();
+                            return { id: item.id, data: { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) } };
+                        } else if (item.type === 'FINNHUB') {
+                            const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY.trim()}`);
+                            if (!r.ok) return { id: item.id, data: { error: 'FINNHUB_ERR' } };
+                            const d = await r.json();
+                            return { id: item.id, data: d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : { error: 'NO_FINN_DATA' } };
+                        }
+                    } catch (e) { return { id: item.id, data: { error: 'CRASH' } }; }
                 });
 
                 const results = await Promise.all(fetchPromises);
-                const newPrices = {};
                 results.forEach(res => { 
                     if (res && res.data) newPrices[res.id] = res.data; 
                 });
@@ -254,6 +260,9 @@
                 });
             };
 
+            // ==========================================
+            // 🧠 CACHE-ONLY MATH ENGINE (No API Burns!)
+            // ==========================================
             useEffect(() => {
                 const activeData = prices[active.id];
                 const activeOld = prevPrices.current[active.id];
@@ -325,6 +334,7 @@
                 prevPrices.current[active.id] = activeData;
             }, [prices, active.id]);
 
+            // Changing tabs ONLY grabs news and updates the UI cache. No API burns!
             useEffect(() => {
                 setSignals({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
                 setAnalysis({ tech: { rsi: '...', label: 'ANALYZING', trend: '...' }, fund: { score: '...', label: 'ANALYZING', buzz: '...' } });
@@ -395,6 +405,7 @@
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
                         <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}</div>
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
+                        {/* THE TIMER UI */}
                         <div style={{ fontSize: '11px', fontWeight: '900', color: countdown <= 10 ? '#ff3d00' : '#00bfff', letterSpacing: '1px', textTransform: 'uppercase' }}>
                             🔄 DATA REFRESH: <span className="number-font">{countdown}s</span>
                         </div>
