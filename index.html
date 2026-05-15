@@ -107,7 +107,6 @@
             { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
         ];
 
-        // --- NEW: INDEPENDENT WORLD CLOCK COMPONENT ---
         function WorldClock() {
             const [time, setTime] = useState(new Date());
 
@@ -140,7 +139,6 @@
             );
         }
 
-        // --- MAIN APP COMPONENT ---
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
@@ -408,14 +406,44 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
+            // --- THE FIX: SMART ASSET ROUTER ---
             const handleAddTicker = () => {
                 if(newTicker) { 
-                    const upperTicker = newTicker.toUpperCase().trim();
-                    if (!list.find(item => item.id === upperTicker)) {
+                    const rawTicker = newTicker.toUpperCase().trim();
+                    
+                    // Don't add if it already exists (ignoring the T suffix)
+                    if (!list.find(item => item.id === rawTicker || item.id === rawTicker.replace('USDT', 'USD'))) {
+                        
+                        let apiType = 'F';
+                        let fetchTag = rawTicker;
+                        let tvTag = rawTicker;
+                        let marketType = 'EQUITIES';
+
+                        // Smart Routing Logic
+                        if (rawTicker.endsWith('USD') && rawTicker.length >= 6) {
+                            // Forex or Metals (e.g. GBPUSD, XAGUSD) -> Route to Binance for free data
+                            apiType = 'B';
+                            fetchTag = rawTicker.replace('USD', 'USDT'); 
+                            tvTag = rawTicker.startsWith('X') ? `OANDA:${rawTicker}` : `FX:${rawTicker}`;
+                            marketType = rawTicker.startsWith('X') ? 'COMMODITIES' : 'FOREX';
+                        } else if (rawTicker.endsWith('USDT') || rawTicker === 'BTC' || rawTicker === 'ETH') {
+                            // Crypto -> Route to Binance
+                            apiType = 'B';
+                            fetchTag = rawTicker.endsWith('USDT') ? rawTicker : `${rawTicker}USDT`;
+                            tvTag = `BINANCE:${fetchTag}`;
+                            marketType = 'CRYPTO';
+                        }
+
                         const newItem = { 
-                            id: upperTicker, name: upperTicker, tag: upperTicker, 
-                            tv: upperTicker, type: 'F', search: upperTicker, market: 'USER ADDED' 
+                            id: rawTicker.replace('USDT', 'USD'), // Keep UI clean
+                            name: rawTicker.replace('USDT', 'USD'), 
+                            tag: fetchTag, 
+                            tv: tvTag, 
+                            type: apiType, 
+                            search: rawTicker.replace('USDT', ''), 
+                            market: marketType 
                         };
+                        
                         setList([...list, newItem]); 
                     }
                     setNewTicker(''); 
@@ -489,7 +517,7 @@
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. MSFT)" 
+                                placeholder="Add ticker (e.g. GBPUSD)" 
                                 style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
                             />
                             <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
