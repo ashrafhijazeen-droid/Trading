@@ -96,11 +96,12 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // FIXED: Now using TRUE Spot Metals via OANDA
         const DEFAULT_WATCHLIST = [
-            { id: 'XAU', name: 'GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
-            { id: 'SLV', name: 'SILVER', tag: 'SLV', tv: 'AMEX:SLV', type: 'F', search: 'SILVER', market: 'US EQUITIES' },
-            { id: 'SPY', name: 'S&P 500', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
-            { id: 'EUR', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX', market: 'FOREX' },
+            { id: 'XAU', name: 'SPOT GOLD', tag: 'OANDA:XAU_USD', tv: 'OANDA:XAUUSD', type: 'FOREX', search: 'GOLD', market: 'COMMODITIES' },
+            { id: 'XAG', name: 'SPOT SILVER', tag: 'OANDA:XAG_USD', tv: 'OANDA:XAGUSD', type: 'FOREX', search: 'SILVER', market: 'COMMODITIES' },
+            { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
+            { id: 'EURUSD', name: 'EUR/USD', tag: 'OANDA:EUR_USD', tv: 'OANDA:EURUSD', type: 'FOREX', search: 'FOREX', market: 'FOREX' },
             { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
             { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
         ];
@@ -140,8 +141,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
+            // BUMPED MEMORY TO V4 to forcefully clear out old ETF tickers
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v3');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v4');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -149,7 +151,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v3', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v4', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -236,12 +238,27 @@
 
             const getMarketData = async (item) => {
                 try {
-                    if (item.type === 'B') {
+                    // --- FIX: FOREX CANDLE ENGINE ---
+                    if (item.type === 'FOREX') {
+                        // Finnhub allows free Forex candles. We request the last 2 daily candles to get the 24h change.
+                        const r = await fetch(`https://finnhub.io/api/v1/forex/candle?symbol=${item.tag}&resolution=D&count=2&token=${API_KEY}`);
+                        if (!r.ok) return null;
+                        const d = await r.json();
+                        if (d.s === 'ok' && d.c && d.c.length > 0) {
+                            const curr = d.c[d.c.length - 1];
+                            const prev = d.c.length > 1 ? d.c[d.c.length - 2] : curr;
+                            const pct = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+                            return { c: curr, dp: pct };
+                        }
+                        return null;
+                    } 
+                    else if (item.type === 'B') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
-                    } else {
+                    } 
+                    else {
                         const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
@@ -253,7 +270,7 @@
             const getNews = async (symbolData) => {
                 try {
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
-                    if (symbolData.type === 'F' && symbolData.id !== 'SPY' && symbolData.id !== 'SLV') {
+                    if (symbolData.type === 'F' && symbolData.id !== 'SPY') {
                         const today = new Date().toISOString().split('T')[0];
                         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
                         endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.id}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
@@ -262,7 +279,7 @@
                     const data = await res.json();
                     
                     let filtered = data;
-                    if (symbolData.type === 'B' || symbolData.id === 'SPY' || symbolData.id === 'SLV') {
+                    if (symbolData.type === 'B' || symbolData.type === 'FOREX' || symbolData.id === 'SPY') {
                         filtered = data.filter(n => (n.headline || '').toUpperCase().includes(symbolData.search) || (n.summary || '').toUpperCase().includes(symbolData.search));
                         if (filtered.length === 0) filtered = data;
                     }
@@ -404,7 +421,7 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // --- THE FIX: SMART ROUTER FOR US30 ---
+            // --- THE FIX: SMART ROUTER V2 (Forex Support) ---
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
@@ -415,7 +432,6 @@
                     let marketType = 'EQUITIES';
                     let displayName = rawTicker;
 
-                    // Intercept US30 and map it to the Dow ETF (DIA) for free Finnhub pricing
                     if (rawTicker === 'US30' || rawTicker === 'DOW') {
                         apiType = 'F';
                         fetchTag = 'DIA';
@@ -423,26 +439,43 @@
                         marketType = 'US EQUITIES';
                         displayName = 'US30';
                     }
-                    else if (rawTicker.endsWith('USD') && rawTicker.length >= 6) {
-                        apiType = 'B';
-                        fetchTag = rawTicker.replace('USD', 'USDT'); 
-                        tvTag = rawTicker.startsWith('X') ? `OANDA:${rawTicker}` : `FX:${rawTicker}`;
-                        marketType = rawTicker.startsWith('X') ? 'COMMODITIES' : 'FOREX';
-                    } else if (rawTicker.endsWith('USDT') || rawTicker === 'BTC' || rawTicker === 'ETH') {
+                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
+                        apiType = 'FOREX';
+                        fetchTag = 'OANDA:XAG_USD';
+                        tvTag = 'OANDA:XAGUSD';
+                        marketType = 'COMMODITIES';
+                        displayName = 'XAG';
+                    }
+                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
+                        apiType = 'FOREX';
+                        fetchTag = 'OANDA:XAU_USD';
+                        tvTag = 'OANDA:XAUUSD';
+                        marketType = 'COMMODITIES';
+                        displayName = 'XAU';
+                    }
+                    // Forex Pairs (e.g. GBPUSD)
+                    else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
+                        apiType = 'FOREX';
+                        fetchTag = `OANDA:${rawTicker.substring(0,3)}_${rawTicker.substring(3,6)}`; 
+                        tvTag = `OANDA:${rawTicker}`;
+                        marketType = 'FOREX';
+                        displayName = rawTicker;
+                    } 
+                    else if (rawTicker.endsWith('USDT') || rawTicker === 'BTC' || rawTicker === 'ETH') {
                         apiType = 'B';
                         fetchTag = rawTicker.endsWith('USDT') ? rawTicker : `${rawTicker}USDT`;
                         tvTag = `BINANCE:${fetchTag}`;
                         marketType = 'CRYPTO';
                     }
 
-                    if (!list.find(item => item.id === displayName || item.id === displayName.replace('USDT', 'USD'))) {
+                    if (!list.find(item => item.id === displayName)) {
                         const newItem = { 
-                            id: displayName.replace('USDT', 'USD'), 
-                            name: displayName.replace('USDT', 'USD'), 
+                            id: displayName, 
+                            name: displayName, 
                             tag: fetchTag, 
                             tv: tvTag, 
                             type: apiType, 
-                            search: displayName.replace('USDT', ''), 
+                            search: displayName, 
                             market: marketType 
                         };
                         setList([...list, newItem]); 
@@ -518,7 +551,7 @@
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. US30)" 
+                                placeholder="Add ticker (e.g. GBPUSD)" 
                                 style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
                             />
                             <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
@@ -555,7 +588,6 @@
                             })}
                         </div>
 
-                        {/* --- THE FIX: RIGID GRID FOR TRADE SETUPS --- */}
                         <div className="glass-panel" style={{ padding: '20px 16px', borderTop: '3px solid #888' }}>
                             <div style={{ fontSize: '11px', color: '#fff', fontWeight: '900', letterSpacing: '1px', marginBottom: '16px' }}>AI TRADE SETUPS BY TIMEFRAME</div>
                             
