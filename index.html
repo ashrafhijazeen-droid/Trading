@@ -49,6 +49,8 @@
 
         .neon-text-green { color: #00e676; text-shadow: 0 0 10px rgba(0, 230, 118, 0.3); }
         .neon-text-red { color: #ff3d00; text-shadow: 0 0 10px rgba(255, 61, 0, 0.3); }
+        .neon-text-blue { color: #00bfff; text-shadow: 0 0 10px rgba(0, 191, 255, 0.3); }
+        .neon-text-amber { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
         
         .number-font { font-family: 'JetBrains Mono', monospace; }
         input::placeholder { color: #555; font-family: 'Inter', sans-serif; }
@@ -96,12 +98,12 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // FIXED: Now using TRUE Spot Metals via OANDA
+        // FIXED: Using Binance for Forex/Gold and ETF for Silver to completely bypass Finnhub limits
         const DEFAULT_WATCHLIST = [
-            { id: 'XAU', name: 'SPOT GOLD', tag: 'OANDA:XAU_USD', tv: 'OANDA:XAUUSD', type: 'FOREX', search: 'GOLD', market: 'COMMODITIES' },
-            { id: 'XAG', name: 'SPOT SILVER', tag: 'OANDA:XAG_USD', tv: 'OANDA:XAGUSD', type: 'FOREX', search: 'SILVER', market: 'COMMODITIES' },
+            { id: 'XAU', name: 'SPOT GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
+            { id: 'XAG', name: 'SPOT SILVER', tag: 'SLV', tv: 'OANDA:XAGUSD', type: 'F', search: 'SILVER', market: 'COMMODITIES' },
             { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
-            { id: 'EURUSD', name: 'EUR/USD', tag: 'OANDA:EUR_USD', tv: 'OANDA:EURUSD', type: 'FOREX', search: 'FOREX', market: 'FOREX' },
+            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX', market: 'FOREX' },
             { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
             { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
         ];
@@ -141,9 +143,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // BUMPED MEMORY TO V4 to forcefully clear out old ETF tickers
+            // MEMORY ENGINE V5 - Forces a fresh list load
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v4');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v5');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -151,7 +153,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v4', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v5', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -238,21 +240,8 @@
 
             const getMarketData = async (item) => {
                 try {
-                    // --- FIX: FOREX CANDLE ENGINE ---
-                    if (item.type === 'FOREX') {
-                        // Finnhub allows free Forex candles. We request the last 2 daily candles to get the 24h change.
-                        const r = await fetch(`https://finnhub.io/api/v1/forex/candle?symbol=${item.tag}&resolution=D&count=2&token=${API_KEY}`);
-                        if (!r.ok) return null;
-                        const d = await r.json();
-                        if (d.s === 'ok' && d.c && d.c.length > 0) {
-                            const curr = d.c[d.c.length - 1];
-                            const prev = d.c.length > 1 ? d.c[d.c.length - 2] : curr;
-                            const pct = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
-                            return { c: curr, dp: pct };
-                        }
-                        return null;
-                    } 
-                    else if (item.type === 'B') {
+                    // Removed the Finnhub Forex API block completely since they limit it randomly.
+                    if (item.type === 'B') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
@@ -270,7 +259,7 @@
             const getNews = async (symbolData) => {
                 try {
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
-                    if (symbolData.type === 'F' && symbolData.id !== 'SPY') {
+                    if (symbolData.type === 'F' && symbolData.id !== 'SPY' && symbolData.id !== 'XAG') {
                         const today = new Date().toISOString().split('T')[0];
                         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
                         endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.id}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
@@ -279,7 +268,7 @@
                     const data = await res.json();
                     
                     let filtered = data;
-                    if (symbolData.type === 'B' || symbolData.type === 'FOREX' || symbolData.id === 'SPY') {
+                    if (symbolData.type === 'B' || symbolData.id === 'SPY' || symbolData.id === 'XAG') {
                         filtered = data.filter(n => (n.headline || '').toUpperCase().includes(symbolData.search) || (n.summary || '').toUpperCase().includes(symbolData.search));
                         if (filtered.length === 0) filtered = data;
                     }
@@ -421,7 +410,7 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // --- THE FIX: SMART ROUTER V2 (Forex Support) ---
+            // --- THE FIX: SMART ROUTER V3 (Binance Forex Proxy Engine) ---
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
@@ -440,24 +429,26 @@
                         displayName = 'US30';
                     }
                     else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
-                        apiType = 'FOREX';
-                        fetchTag = 'OANDA:XAG_USD';
+                        // Silver goes to ETF for reliable 24h data, while chart stays pure spot XAG
+                        apiType = 'F';
+                        fetchTag = 'SLV';
                         tvTag = 'OANDA:XAGUSD';
                         marketType = 'COMMODITIES';
                         displayName = 'XAG';
                     }
                     else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
-                        apiType = 'FOREX';
-                        fetchTag = 'OANDA:XAU_USD';
+                        // Gold mapped directly to PAXGUSDT for perfect spot tracking
+                        apiType = 'B';
+                        fetchTag = 'PAXGUSDT';
                         tvTag = 'OANDA:XAUUSD';
                         marketType = 'COMMODITIES';
                         displayName = 'XAU';
                     }
-                    // Forex Pairs (e.g. GBPUSD)
                     else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
-                        apiType = 'FOREX';
-                        fetchTag = `OANDA:${rawTicker.substring(0,3)}_${rawTicker.substring(3,6)}`; 
-                        tvTag = `OANDA:${rawTicker}`;
+                        // FOREX Pairs -> Sent to Binance Fiat-Tether tracking! (EURUSDT, GBPUSDT, AUDUSDT)
+                        apiType = 'B';
+                        fetchTag = rawTicker.replace('USD', 'USDT'); 
+                        tvTag = `FX:${rawTicker}`;
                         marketType = 'FOREX';
                         displayName = rawTicker;
                     } 
@@ -475,7 +466,7 @@
                             tag: fetchTag, 
                             tv: tvTag, 
                             type: apiType, 
-                            search: displayName, 
+                            search: displayName.replace('USD', ''), 
                             market: marketType 
                         };
                         setList([...list, newItem]); 
