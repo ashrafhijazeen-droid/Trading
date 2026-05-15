@@ -42,18 +42,18 @@
         const { useState, useEffect, useRef } = React;
 
         // ==========================================
-        // 🔑 API KEYS INJECTED
+        // 🔑 FULLY INJECTED MASTER API KEYS
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'w0zDB2B4PDGVaAR2c7srTsD2ZEz'; 
+        const TWELVEDATA_API_KEY = 'e4d72d05a29143e5aa8341591271a973'; // <-- YOUR NEW TWELVEDATA KEY
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
-            { id: 'XAU', name: 'SPOT GOLD', tag: 'XAU/USD', tv: 'OANDA:XAUUSD', type: 'FCS', market: 'COMMODITIES' },
-            { id: 'XAG', name: 'SPOT SILVER', tag: 'XAG/USD', tv: 'OANDA:XAGUSD', type: 'FCS', market: 'COMMODITIES' },
+            { id: 'XAU', name: 'SPOT GOLD', tag: 'XAU/USD', tv: 'OANDA:XAUUSD', type: 'TWELVEDATA', market: 'COMMODITIES' },
+            { id: 'XAG', name: 'SPOT SILVER', tag: 'XAG/USD', tv: 'OANDA:XAGUSD', type: 'TWELVEDATA', market: 'COMMODITIES' },
             { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'FINNHUB', market: 'US EQUITIES' },
             { id: 'US30', name: 'DOW JONES (DIA)', tag: 'DIA', tv: 'AMEX:DIA', type: 'FINNHUB', market: 'US EQUITIES' },
-            { id: 'EURUSD', name: 'EUR/USD', tag: 'EUR/USD', tv: 'FX:EURUSD', type: 'FCS', market: 'FOREX' },
+            { id: 'EURUSD', name: 'EUR/USD', tag: 'EUR/USD', tv: 'FX:EURUSD', type: 'TWELVEDATA', market: 'FOREX' },
             { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSDT', type: 'BINANCE_S', market: 'CRYPTO' }
         ];
 
@@ -90,14 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // DIAGNOSTIC MEMORY V29
+            // MEMORY V31 - Total flush for TwelveData
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v29');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v31');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v29', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v31', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -119,6 +119,7 @@
             const [marketStatus, setMarketStatus] = useState({ text: 'CHECKING...', color: '#f59e0b' });
             const [newTicker, setNewTicker] = useState('');
             const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
+            
             const [countdown, setCountdown] = useState(60);
 
             const updateGlobalSessions = () => {
@@ -157,49 +158,25 @@
             const getMarketData = async (item) => {
                 try {
                     // ==========================================
-                    // 🛡️ DIAGNOSTIC FCS ENGINE V2
+                    // 🛡️ THE NEW TWELVEDATA ENGINE (Bypasses CORS naturally)
                     // ==========================================
-                    if (item.type === 'FCS') {
-                        if (!FCS_API_KEY) return { error: 'NO_KEY_FOUND' }; 
+                    if (item.type === 'TWELVEDATA') {
+                        if (!TWELVEDATA_API_KEY) return { error: 'NO_KEY' }; 
                         
-                        // FIX: Removed cache-buster, trimmed key spaces to prevent server confusion
-                        const cleanKey = FCS_API_KEY.trim();
-                        const encodedTag = encodeURIComponent(item.tag);
-                        const directUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${encodedTag}&access_key=${cleanKey}`;
-                        
-                        let r;
-
-                        // Attempt 1: Direct connection
-                        try {
-                            r = await fetch(directUrl);
-                        } catch (err) {
-                            // Direct connection blocked (CORS). Attempt 2: Proxy
-                            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-                            try {
-                                r = await fetch(proxyUrl);
-                            } catch (proxyErr) {
-                                return { error: 'CORS_BLOCK' };
-                            }
-                        }
-
+                        const r = await fetch(`https://api.twelvedata.com/quote?symbol=${item.tag}&apikey=${TWELVEDATA_API_KEY}`);
                         if (!r.ok) return { error: `HTTP_${r.status}` };
                         
                         const d = await r.json();
                         
-                        // If FCS intentionally rejects us
-                        if (d.status === false) {
-                            return { error: d.msg || 'FCS_REJECT' };
+                        if (d.code && d.code >= 400) {
+                            return { error: d.message ? d.message.substring(0,12) : 'API_ERROR' };
                         }
 
-                        // Success! Parse the data.
-                        if (d.status && d.response && d.response.length > 0) {
-                            const data = d.response[0];
-                            const currentPrice = parseFloat(data.c || data.price || 0);
-                            const rawPct = data.cp || data.chg_per || "0";
-                            const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
+                        if (d.close && d.percent_change) {
+                            const currentPrice = parseFloat(d.close);
+                            const pct = parseFloat(d.percent_change);
                             return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
                         }
-
                         return { error: 'NO_DATA' };
                     } 
                     else if (item.type === 'BINANCE_S') {
@@ -382,9 +359,9 @@
                     let apiType = 'FINNHUB', fetchTag = rawTicker, tvTag = rawTicker, marketType = 'US EQUITIES', displayName = rawTicker;
 
                     if (rawTicker === 'US30' || rawTicker === 'DOW') { apiType = 'FINNHUB'; fetchTag = 'DIA'; tvTag = 'AMEX:DIA'; displayName = 'US30 (DIA)'; }
-                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') { apiType = 'FCS'; fetchTag = 'XAG/USD'; tvTag = 'OANDA:XAGUSD'; marketType = 'COMMODITIES'; displayName = 'XAG'; }
-                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') { apiType = 'FCS'; fetchTag = 'XAU/USD'; tvTag = 'OANDA:XAUUSD'; marketType = 'COMMODITIES'; displayName = 'XAU'; }
-                    else if (rawTicker.endsWith('USD') && rawTicker.length === 6) { apiType = 'FCS'; fetchTag = `${rawTicker.substring(0,3)}/${rawTicker.substring(3,6)}`; tvTag = `FX:${rawTicker}`; marketType = 'FOREX'; displayName = rawTicker; } 
+                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') { apiType = 'TWELVEDATA'; fetchTag = 'XAG/USD'; tvTag = 'OANDA:XAGUSD'; marketType = 'COMMODITIES'; displayName = 'XAG'; }
+                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') { apiType = 'TWELVEDATA'; fetchTag = 'XAU/USD'; tvTag = 'OANDA:XAUUSD'; marketType = 'COMMODITIES'; displayName = 'XAU'; }
+                    else if (rawTicker.endsWith('USD') && rawTicker.length === 6) { apiType = 'TWELVEDATA'; fetchTag = `${rawTicker.substring(0,3)}/${rawTicker.substring(3,6)}`; tvTag = `FX:${rawTicker}`; marketType = 'FOREX'; displayName = rawTicker; } 
                     else if (rawTicker === 'BTC' || rawTicker === 'ETH' || rawTicker.endsWith('USDT')) { const cleanCrypto = rawTicker.replace('USDT', ''); apiType = 'BINANCE_S'; fetchTag = `${cleanCrypto}USDT`; tvTag = `BINANCE:${cleanCrypto}USDT`; marketType = 'CRYPTO'; displayName = cleanCrypto; }
 
                     if (!list.find(item => item.id === displayName)) {
@@ -418,6 +395,7 @@
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
                         <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}</div>
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
+                        {/* THE TIMER UI */}
                         <div style={{ fontSize: '11px', fontWeight: '900', color: countdown <= 10 ? '#ff3d00' : '#00bfff', letterSpacing: '1px', textTransform: 'uppercase' }}>
                             🔄 DATA REFRESH: <span className="number-font">{countdown}s</span>
                         </div>
