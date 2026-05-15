@@ -98,12 +98,12 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // FIXED: Using Binance for Forex/Gold and ETF for Silver to completely bypass Finnhub limits
+        // FIXED: Hard-linking the TV Chart to the exact API data fetch tag
         const DEFAULT_WATCHLIST = [
-            { id: 'XAU', name: 'SPOT GOLD', tag: 'PAXGUSDT', tv: 'OANDA:XAUUSD', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
-            { id: 'XAG', name: 'SPOT SILVER', tag: 'SLV', tv: 'OANDA:XAGUSD', type: 'F', search: 'SILVER', market: 'COMMODITIES' },
+            { id: 'XAU', name: 'GOLD (PAXG)', tag: 'PAXGUSDT', tv: 'BINANCE:PAXGUSDT', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
+            { id: 'SLV', name: 'SILVER (ETF)', tag: 'SLV', tv: 'AMEX:SLV', type: 'F', search: 'SILVER', market: 'US EQUITIES' },
             { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
-            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'B', search: 'FOREX', market: 'FOREX' },
+            { id: 'EURUSD', name: 'EUR/USD (PROXY)', tag: 'EURUSDT', tv: 'BINANCE:EURUSDT', type: 'B', search: 'FOREX', market: 'FOREX' },
             { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
             { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
         ];
@@ -143,9 +143,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // MEMORY ENGINE V5 - Forces a fresh list load
+            // VERSION 6: Forces hard-reset to new synced charts
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v5');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v6');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -153,7 +153,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v5', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v6', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -240,7 +240,6 @@
 
             const getMarketData = async (item) => {
                 try {
-                    // Removed the Finnhub Forex API block completely since they limit it randomly.
                     if (item.type === 'B') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
@@ -259,16 +258,16 @@
             const getNews = async (symbolData) => {
                 try {
                     let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
-                    if (symbolData.type === 'F' && symbolData.id !== 'SPY' && symbolData.id !== 'XAG') {
+                    if (symbolData.type === 'F' && symbolData.id !== 'SPY') {
                         const today = new Date().toISOString().split('T')[0];
                         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.id}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
+                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.tag}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
                     }
                     const res = await fetch(endpoint);
                     const data = await res.json();
                     
                     let filtered = data;
-                    if (symbolData.type === 'B' || symbolData.id === 'SPY' || symbolData.id === 'XAG') {
+                    if (symbolData.type === 'B' || symbolData.id === 'SPY') {
                         filtered = data.filter(n => (n.headline || '').toUpperCase().includes(symbolData.search) || (n.summary || '').toUpperCase().includes(symbolData.search));
                         if (filtered.length === 0) filtered = data;
                     }
@@ -410,7 +409,7 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // --- THE FIX: SMART ROUTER V3 (Binance Forex Proxy Engine) ---
+            // --- THE FIX: FORCING CHART AND DATA TAGS TO MATCH EXACTLY ---
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
@@ -424,38 +423,35 @@
                     if (rawTicker === 'US30' || rawTicker === 'DOW') {
                         apiType = 'F';
                         fetchTag = 'DIA';
-                        tvTag = 'CURRENCYCOM:US30';
+                        tvTag = 'AMEX:DIA'; // Linked to exact ETF
                         marketType = 'US EQUITIES';
-                        displayName = 'US30';
+                        displayName = 'US30 (DIA)';
                     }
                     else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
-                        // Silver goes to ETF for reliable 24h data, while chart stays pure spot XAG
                         apiType = 'F';
                         fetchTag = 'SLV';
-                        tvTag = 'OANDA:XAGUSD';
+                        tvTag = 'AMEX:SLV'; // Perfectly mapped to SLV ETF
                         marketType = 'COMMODITIES';
-                        displayName = 'XAG';
+                        displayName = 'SILVER (SLV)';
                     }
                     else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
-                        // Gold mapped directly to PAXGUSDT for perfect spot tracking
                         apiType = 'B';
                         fetchTag = 'PAXGUSDT';
-                        tvTag = 'OANDA:XAUUSD';
+                        tvTag = 'BINANCE:PAXGUSDT'; // Perfectly mapped to Binance Gold
                         marketType = 'COMMODITIES';
-                        displayName = 'XAU';
+                        displayName = 'GOLD (PAXG)';
                     }
                     else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
-                        // FOREX Pairs -> Sent to Binance Fiat-Tether tracking! (EURUSDT, GBPUSDT, AUDUSDT)
                         apiType = 'B';
                         fetchTag = rawTicker.replace('USD', 'USDT'); 
-                        tvTag = `FX:${rawTicker}`;
+                        tvTag = `BINANCE:${fetchTag}`; // Perfectly mapped to Binance Forex Proxy
                         marketType = 'FOREX';
                         displayName = rawTicker;
                     } 
                     else if (rawTicker.endsWith('USDT') || rawTicker === 'BTC' || rawTicker === 'ETH') {
                         apiType = 'B';
                         fetchTag = rawTicker.endsWith('USDT') ? rawTicker : `${rawTicker}USDT`;
-                        tvTag = `BINANCE:${fetchTag}`;
+                        tvTag = `BINANCE:${fetchTag}`; // Perfectly mapped to Binance Crypto
                         marketType = 'CRYPTO';
                     }
 
@@ -466,7 +462,7 @@
                             tag: fetchTag, 
                             tv: tvTag, 
                             type: apiType, 
-                            search: displayName.replace('USD', ''), 
+                            search: displayName.replace('USD', '').replace(' (PAXG)', '').replace(' (SLV)', ''), 
                             market: marketType 
                         };
                         setList([...list, newItem]); 
@@ -542,7 +538,7 @@
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. GBPUSD)" 
+                                placeholder="Add ticker (e.g. TSLA)" 
                                 style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
                             />
                             <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
