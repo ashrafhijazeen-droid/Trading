@@ -98,14 +98,20 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // FIXED V12: Removed all broken Forex/Futures routing. 100% Parity via ETF mapping.
+        // ==========================================
+        // 🔑 FULLY INJECTED MASTER API KEYS
+        // ==========================================
+        const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
+        const FCS_API_KEY = 'bJDUDT4iQe56HlsTgpJPjFIndRhAZ';
+        // ==========================================
+
         const DEFAULT_WATCHLIST = [
-            { id: 'GLD', name: 'GOLD (ETF)', tag: 'GLD', tv: 'AMEX:GLD', type: 'F', market: 'COMMODITIES' },
-            { id: 'SLV', name: 'SILVER (ETF)', tag: 'SLV', tv: 'AMEX:SLV', type: 'F', market: 'COMMODITIES' },
-            { id: 'DIA', name: 'DOW JONES (ETF)', tag: 'DIA', tv: 'AMEX:DIA', type: 'F', market: 'US EQUITIES' },
-            { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', market: 'US EQUITIES' },
-            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'BINANCE:EURUSDT', type: 'B', market: 'FOREX' },
-            { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSDT', type: 'B', market: 'CRYPTO' }
+            { id: 'XAU', name: 'SPOT GOLD', tag: 'XAU/USD', tv: 'OANDA:XAUUSD', type: 'FCS', market: 'COMMODITIES' },
+            { id: 'XAG', name: 'SPOT SILVER', tag: 'XAG/USD', tv: 'OANDA:XAGUSD', type: 'FCS', market: 'COMMODITIES' },
+            { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'FINNHUB', market: 'US EQUITIES' },
+            { id: 'US30', name: 'DOW JONES (DIA)', tag: 'DIA', tv: 'AMEX:DIA', type: 'FINNHUB', market: 'US EQUITIES' },
+            { id: 'EURUSD', name: 'EUR/USD', tag: 'EUR/USD', tv: 'FX:EURUSD', type: 'FCS', market: 'FOREX' },
+            { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSDT', type: 'BINANCE_S', market: 'CRYPTO' }
         ];
 
         function WorldClock() {
@@ -143,8 +149,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
+            // MEMORY V14 - Hard reset for injected keys
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v12');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v14');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -152,7 +159,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v12', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v14', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -176,8 +183,6 @@
             const [newTicker, setNewTicker] = useState('');
             const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
 
-            const API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20';
-
             const updateGlobalSessions = () => {
                 const now = new Date();
                 const utcHour = now.getUTCHours();
@@ -192,7 +197,7 @@
                     nextOpen.setUTCHours(22, 0, 0, 0);
                     
                     setSessionBanner({
-                        open: 'WEEKEND (CRYPTO ONLY)',
+                        open: 'WEEKEND',
                         next: 'SYDNEY',
                         time: nextOpen.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
                     });
@@ -239,16 +244,31 @@
 
             const getMarketData = async (item) => {
                 try {
-                    if (item.type === 'B') {
-                        // Strict Binance Spot Routing
+                    // THE FCS SPOT ENGINE ($10/mo budget)
+                    if (item.type === 'FCS') {
+                        if (!FCS_API_KEY) return null; 
+                        
+                        const r = await fetch(`https://fcsapi.com/api-v3/forex/latest?symbol=${item.tag}&access_key=${FCS_API_KEY}`);
+                        if (!r.ok) return null;
+                        const d = await r.json();
+                        
+                        if (d.status && d.response && d.response.length > 0) {
+                            const data = d.response[0];
+                            const currentPrice = parseFloat(data.c);
+                            const openPrice = parseFloat(data.o);
+                            const pct = openPrice > 0 ? ((currentPrice - openPrice) / openPrice) * 100 : 0;
+                            return { c: currentPrice, dp: pct };
+                        }
+                        return null;
+                    } 
+                    else if (item.type === 'BINANCE_S') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
-                    } 
-                    else {
-                        // Strict Finnhub Routing (for US Stocks and ETFs)
-                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
+                    }
+                    else if (item.type === 'FINNHUB') {
+                        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${FINNHUB_API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : null;
@@ -258,15 +278,14 @@
 
             const getNews = async (symbolData) => {
                 try {
-                    let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`;
-                    if (symbolData.type === 'F' && symbolData.id !== 'SPY') {
+                    let endpoint = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_API_KEY}`;
+                    if (symbolData.type === 'FINNHUB' && symbolData.id !== 'SPY') {
                         const today = new Date().toISOString().split('T')[0];
                         const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.tag}&from=${lastWeek}&to=${today}&token=${API_KEY}`;
+                        endpoint = `https://finnhub.io/api/v1/company-news?symbol=${symbolData.tag}&from=${lastWeek}&to=${today}&token=${FINNHUB_API_KEY}`;
                     }
                     const res = await fetch(endpoint);
                     const data = await res.json();
-                    
                     setNewsFeed(data.slice(0, 8)); 
                 } catch (e) {
                     setNewsFeed([{ headline: 'Market Feed Active. No specific news found.', source: 'System', url: '#' }]);
@@ -406,48 +425,47 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // STRICT ROUTER: Only allows true ETFs and Spot Crypto to ensure exact 1:1 Parity
+            // SMART ROUTER V13: Maps true Spot to FCS format
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
                     
-                    let apiType = 'F';
+                    let apiType = 'FINNHUB';
                     let fetchTag = rawTicker;
                     let tvTag = rawTicker;
                     let marketType = 'US EQUITIES';
                     let displayName = rawTicker;
 
-                    if (rawTicker === 'US30' || rawTicker === 'DOW' || rawTicker === 'DIA') {
-                        apiType = 'F';
+                    if (rawTicker === 'US30' || rawTicker === 'DOW') {
+                        apiType = 'FINNHUB';
                         fetchTag = 'DIA';
                         tvTag = 'AMEX:DIA'; 
-                        marketType = 'US EQUITIES';
-                        displayName = 'DIA';
+                        displayName = 'US30 (DIA)';
                     }
-                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER' || rawTicker === 'SLV') {
-                        apiType = 'F';
-                        fetchTag = 'SLV';
-                        tvTag = 'AMEX:SLV'; 
+                    else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
+                        apiType = 'FCS';
+                        fetchTag = 'XAG/USD';
+                        tvTag = 'OANDA:XAGUSD'; 
                         marketType = 'COMMODITIES';
-                        displayName = 'SLV';
+                        displayName = 'XAG';
                     }
-                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD' || rawTicker === 'GLD') {
-                        apiType = 'F';
-                        fetchTag = 'GLD';
-                        tvTag = 'AMEX:GLD'; 
+                    else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
+                        apiType = 'FCS';
+                        fetchTag = 'XAU/USD';
+                        tvTag = 'OANDA:XAUUSD'; 
                         marketType = 'COMMODITIES';
-                        displayName = 'GLD';
+                        displayName = 'XAU';
                     }
                     else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
-                        apiType = 'B';
-                        fetchTag = rawTicker.replace('USD', 'USDT'); 
-                        tvTag = `BINANCE:${fetchTag}`; 
+                        apiType = 'FCS';
+                        fetchTag = `${rawTicker.substring(0,3)}/${rawTicker.substring(3,6)}`; 
+                        tvTag = `FX:${rawTicker}`; 
                         marketType = 'FOREX';
                         displayName = rawTicker;
                     } 
                     else if (rawTicker === 'BTC' || rawTicker === 'ETH' || rawTicker.endsWith('USDT')) {
                         const cleanCrypto = rawTicker.replace('USDT', '');
-                        apiType = 'B';
+                        apiType = 'BINANCE_S';
                         fetchTag = `${cleanCrypto}USDT`;
                         tvTag = `BINANCE:${cleanCrypto}USDT`; 
                         marketType = 'CRYPTO';
@@ -536,7 +554,7 @@
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. AAPL)" 
+                                placeholder="Add ticker (e.g. GBPUSD)" 
                                 style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
                             />
                             <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
