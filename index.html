@@ -45,7 +45,7 @@
         // 🔑 API KEYS INJECTED
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk'; 
+        const FCS_API_KEY = 'bJDUDT4iQe56HlsTgpJPjFIndRhAZ'; // <-- YOUR REQUESTED KEY
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -90,14 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // DIAGNOSTIC MEMORY V24
+            // DIAGNOSTIC MEMORY V25
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v24');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v25');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v24', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v25', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -161,20 +161,17 @@
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return { error: 'NO_KEY_FOUND' }; 
                         
-                        // We must URL encode the tag (e.g. XAU/USD -> XAU%2FUSD) to prevent server errors
                         const encodedTag = encodeURIComponent(item.tag);
                         const cacheBuster = Date.now();
                         const directUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${encodedTag}&access_key=${FCS_API_KEY}&cb=${cacheBuster}`;
                         
                         let r;
-                        let usedProxy = false;
 
                         // Attempt 1: Direct connection
                         try {
                             r = await fetch(directUrl);
                         } catch (err) {
                             // Direct connection blocked (CORS). Attempt 2: Proxy
-                            usedProxy = true;
                             const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
                             try {
                                 r = await fetch(proxyUrl);
@@ -359,7 +356,6 @@
                 refreshAll();
             }, [active.id]); 
 
-            // 60-second delay to protect API limits
             useEffect(() => {
                 const timer = setInterval(() => { refreshAll(); setMarketStatus(checkMarketStatus(active)); }, 60000); 
                 return () => clearInterval(timer);
@@ -421,8 +417,7 @@
                                         <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                                        {/* DIAGNOSTIC PRICING LOGIC */}
-                                        <span className="number-font" style={{ fontSize: '12px', color: prices[item.id]?.error ? '#ff3d00' : (prices[item.id] ? '#fff' : '#444'), fontWeight: '700' }}>
+                                        <span className="number-font" style={{ fontSize: '14px', color: prices[item.id]?.error ? '#ff3d00' : (prices[item.id] ? '#fff' : '#444'), fontWeight: '700' }}>
                                             {prices[item.id] ? (prices[item.id].error ? prices[item.id].error.substring(0,12) : `$${prices[item.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})}`) : '---'}
                                         </span>
                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
