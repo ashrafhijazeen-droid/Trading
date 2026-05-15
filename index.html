@@ -45,7 +45,7 @@
         // 🔑 API KEYS INJECTED
         // ==========================================
         const FINNHUB_API_KEY = 'd832b0pr01ql4ong0i1gd832b0pr01ql4ong0i20'; 
-        const FCS_API_KEY = 'bJDUDT4iQe56HlsTgpJPjFIndRhAZ'; // <-- YOUR REQUESTED KEY
+        const FCS_API_KEY = 'sXI2YS9AQtvBPwKoU4SdMyrUBUPJCpwk'; 
         // ==========================================
 
         const DEFAULT_WATCHLIST = [
@@ -90,14 +90,14 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // DIAGNOSTIC MEMORY V25
+            // MEMORY V26
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v25');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v26');
                 if (savedList) { try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; } }
                 return DEFAULT_WATCHLIST;
             });
 
-            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v25', JSON.stringify(list)); }, [list]);
+            useEffect(() => { localStorage.setItem('tradeSyncWatchlist_v26', JSON.stringify(list)); }, [list]);
 
             const [prices, setPrices] = useState({});
             const prevPrices = useRef({}); 
@@ -119,6 +119,9 @@
             const [marketStatus, setMarketStatus] = useState({ text: 'CHECKING...', color: '#f59e0b' });
             const [newTicker, setNewTicker] = useState('');
             const [sessionBanner, setSessionBanner] = useState({ open: 'CHECKING...', next: '...', time: '...' });
+            
+            // NEW: Rate Limit Timer
+            const [countdown, setCountdown] = useState(60);
 
             const updateGlobalSessions = () => {
                 const now = new Date();
@@ -156,7 +159,7 @@
             const getMarketData = async (item) => {
                 try {
                     // ==========================================
-                    // 🛡️ DIAGNOSTIC FCS ENGINE
+                    // 🛡️ RATE-LIMITED FCS ENGINE
                     // ==========================================
                     if (item.type === 'FCS') {
                         if (!FCS_API_KEY) return { error: 'NO_KEY_FOUND' }; 
@@ -166,30 +169,18 @@
                         const directUrl = `https://fcsapi.com/api-v3/forex/latest?symbol=${encodedTag}&access_key=${FCS_API_KEY}&cb=${cacheBuster}`;
                         
                         let r;
-
-                        // Attempt 1: Direct connection
                         try {
                             r = await fetch(directUrl);
                         } catch (err) {
-                            // Direct connection blocked (CORS). Attempt 2: Proxy
                             const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-                            try {
-                                r = await fetch(proxyUrl);
-                            } catch (proxyErr) {
-                                return { error: 'CORS_BLOCK' };
-                            }
+                            try { r = await fetch(proxyUrl); } catch (proxyErr) { return { error: 'CORS_BLOCK' }; }
                         }
 
                         if (!r.ok) return { error: `HTTP_${r.status}` };
-                        
                         const d = await r.json();
                         
-                        // If FCS intentionally rejects us, grab their exact error message
-                        if (d.status === false) {
-                            return { error: d.msg || 'FCS_REJECT' };
-                        }
+                        if (d.status === false) return { error: d.msg || 'FCS_REJECT' };
 
-                        // Success! Parse the data.
                         if (d.status && d.response && d.response.length > 0) {
                             const data = d.response[0];
                             const currentPrice = parseFloat(data.c || data.price || 0);
@@ -197,8 +188,7 @@
                             const pct = parseFloat(String(rawPct).replace(/[^0-9.-]/g, ''));
                             return { c: currentPrice, dp: isNaN(pct) ? 0 : pct };
                         }
-
-                        return { error: 'NO_DATA_RETURNED' };
+                        return { error: 'NO_DATA' };
                     } 
                     else if (item.type === 'BINANCE_S') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
@@ -212,9 +202,7 @@
                         const d = await r.json();
                         return d.c && d.c !== 0 ? { c: d.c, dp: d.dp || 0 } : { error: 'NO_FINN_DATA' };
                     }
-                } catch (e) { 
-                    return { error: 'CRASH' }; 
-                }
+                } catch (e) { return { error: 'CRASH' }; }
             };
 
             const getNews = async (symbolData) => {
@@ -275,6 +263,9 @@
                 });
             };
 
+            // ==========================================
+            // 🧠 CACHE-ONLY MATH ENGINE (No API Burns!)
+            // ==========================================
             useEffect(() => {
                 const activeData = prices[active.id];
                 const activeOld = prevPrices.current[active.id];
@@ -346,6 +337,10 @@
                 prevPrices.current[active.id] = activeData;
             }, [prices, active.id]);
 
+            // ==========================================
+            // 🛑 DECOUPLED TAB SWITCHING
+            // Changing tabs ONLY grabs news and updates the UI cache. No API burns!
+            // ==========================================
             useEffect(() => {
                 setSignals({ scalping: 'ANALYZING', day: 'ANALYZING', swing: 'ANALYZING' });
                 setAnalysis({ tech: { rsi: '...', label: 'ANALYZING', trend: '...' }, fund: { score: '...', label: 'ANALYZING', buzz: '...' } });
@@ -353,13 +348,28 @@
 
                 getNews(active);
                 setMarketStatus(checkMarketStatus(active));
-                refreshAll();
             }, [active.id]); 
 
+            // ==========================================
+            // ⏱️ STRICT 60-SECOND BACKGROUND TIMER
+            // ==========================================
             useEffect(() => {
-                const timer = setInterval(() => { refreshAll(); setMarketStatus(checkMarketStatus(active)); }, 60000); 
+                refreshAll();
+                setCountdown(60);
+
+                const timer = setInterval(() => {
+                    setCountdown((prev) => {
+                        if (prev <= 1) {
+                            refreshAll();
+                            setMarketStatus(checkMarketStatus(active));
+                            return 60;
+                        }
+                        return prev - 1;
+                    });
+                }, 1000);
+
                 return () => clearInterval(timer);
-            }, [active.id, list.length]);
+            }, [list]); 
 
             const handleAddTicker = () => {
                 if(newTicker) { 
@@ -389,6 +399,7 @@
 
             return (
                 <div className="dashboard-layout">
+                    
                     <div className="glass-panel header-area" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 25px' }}>
                         <div style={{ fontSize: '20px', fontWeight: '900', letterSpacing: '-0.5px' }}>TradeSync<span style={{ color: '#00e676' }}>.Pro</span></div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '8px 16px', borderRadius: '20px', border: `1px solid ${marketStatus.color}40` }}>
@@ -401,6 +412,11 @@
                         <div style={{ fontSize: '11px', fontWeight: '800', color: '#00e676', letterSpacing: '1px', textTransform: 'uppercase' }}>🟢 LIVE: {sessionBanner.open}</div>
                         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
                         <div style={{ fontSize: '11px', fontWeight: '800', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase' }}>⏳ NEXT: {sessionBanner.next} OPENS AT {sessionBanner.time}</div>
+                        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)' }} className="hide-on-mobile"></div>
+                        {/* THE NEW TIMER UI */}
+                        <div style={{ fontSize: '11px', fontWeight: '900', color: countdown <= 10 ? '#ff3d00' : '#00bfff', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                            🔄 DATA REFRESH: <span className="number-font">{countdown}s</span>
+                        </div>
                     </div>
 
                     <div className="glass-panel left-area">
@@ -417,7 +433,7 @@
                                         <span style={{ fontSize: '10px', color: '#666', fontWeight: '600' }}>{item.name}</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                                        <span className="number-font" style={{ fontSize: '14px', color: prices[item.id]?.error ? '#ff3d00' : (prices[item.id] ? '#fff' : '#444'), fontWeight: '700' }}>
+                                        <span className="number-font" style={{ fontSize: '12px', color: prices[item.id]?.error ? '#ff3d00' : (prices[item.id] ? '#fff' : '#444'), fontWeight: '700' }}>
                                             {prices[item.id] ? (prices[item.id].error ? prices[item.id].error.substring(0,12) : `$${prices[item.id].c.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 5})}`) : '---'}
                                         </span>
                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
