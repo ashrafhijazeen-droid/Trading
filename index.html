@@ -98,12 +98,12 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // FIXED: Restored XAG with FOREX typing to pull true Spot Prices
+        // FIXED: Using KRAKEN API for flawless Spot Metals and Forex.
         const DEFAULT_WATCHLIST = [
-            { id: 'XAU', name: 'SPOT GOLD', tag: 'PAXGUSDT', tv: 'BINANCE:PAXGUSDT', type: 'B', search: 'GOLD', market: 'COMMODITIES' },
-            { id: 'XAG', name: 'SPOT SILVER', tag: 'OANDA:XAG_USD', tv: 'OANDA:XAGUSD', type: 'FOREX', search: 'SILVER', market: 'COMMODITIES' },
+            { id: 'XAU', name: 'SPOT GOLD', tag: 'XAUUSD', tv: 'OANDA:XAUUSD', type: 'KRAKEN', search: 'GOLD', market: 'COMMODITIES' },
+            { id: 'XAG', name: 'SPOT SILVER', tag: 'XAGUSD', tv: 'OANDA:XAGUSD', type: 'KRAKEN', search: 'SILVER', market: 'COMMODITIES' },
             { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
-            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'BINANCE:EURUSDT', type: 'B', search: 'FOREX', market: 'FOREX' },
+            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSD', tv: 'FX:EURUSD', type: 'KRAKEN', search: 'FOREX', market: 'FOREX' },
             { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
             { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
         ];
@@ -143,9 +143,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // VERSION 7: Forces hard-reset to true XAG Spot list
+            // VERSION 8 MEMORY: Triggers the new Kraken lists
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v7');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v8');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -153,7 +153,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v7', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v8', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -240,18 +240,20 @@
 
             const getMarketData = async (item) => {
                 try {
-                    // THE FIX: Restored the Finnhub Forex Engine specifically for OANDA
-                    if (item.type === 'FOREX') {
-                        const r = await fetch(`https://finnhub.io/api/v1/forex/candle?symbol=${item.tag}&resolution=D&count=2&token=${API_KEY}`);
+                    // --- NEW: KRAKEN SPOT ENGINE ---
+                    if (item.type === 'KRAKEN') {
+                        const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
-                        if (d.s === 'ok' && d.c && d.c.length > 0) {
-                            const curr = d.c[d.c.length - 1];
-                            const prev = d.c.length > 1 ? d.c[d.c.length - 2] : curr;
-                            const pct = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
-                            return { c: curr, dp: pct };
-                        }
-                        return null;
+                        if (d.error && d.error.length > 0) return null;
+                        
+                        const pairKey = Object.keys(d.result)[0];
+                        const data = d.result[pairKey];
+                        const currentPrice = parseFloat(data.c[0]);
+                        const openPrice = parseFloat(data.o);
+                        const pct = openPrice > 0 ? ((currentPrice - openPrice) / openPrice) * 100 : 0;
+                        
+                        return { c: currentPrice, dp: pct };
                     } 
                     else if (item.type === 'B') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
@@ -280,7 +282,7 @@
                     const data = await res.json();
                     
                     let filtered = data;
-                    if (symbolData.type === 'B' || symbolData.type === 'FOREX' || symbolData.id === 'SPY') {
+                    if (symbolData.type === 'B' || symbolData.type === 'KRAKEN' || symbolData.id === 'SPY') {
                         filtered = data.filter(n => (n.headline || '').toUpperCase().includes(symbolData.search) || (n.summary || '').toUpperCase().includes(symbolData.search));
                         if (filtered.length === 0) filtered = data;
                     }
@@ -422,6 +424,7 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
+            // --- SMART ROUTER V4 (Kraken Support) ---
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
@@ -437,27 +440,27 @@
                         fetchTag = 'DIA';
                         tvTag = 'AMEX:DIA'; 
                         marketType = 'US EQUITIES';
-                        displayName = 'US30 (DIA)';
+                        displayName = 'US30';
                     }
                     else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
-                        // FIX: Directly pulls OANDA Spot Prices to match the chart!
-                        apiType = 'FOREX';
-                        fetchTag = 'OANDA:XAG_USD';
+                        apiType = 'KRAKEN';
+                        fetchTag = 'XAGUSD';
                         tvTag = 'OANDA:XAGUSD'; 
                         marketType = 'COMMODITIES';
                         displayName = 'XAG';
                     }
                     else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
-                        apiType = 'B';
-                        fetchTag = 'PAXGUSDT';
-                        tvTag = 'BINANCE:PAXGUSDT'; 
+                        apiType = 'KRAKEN';
+                        fetchTag = 'XAUUSD';
+                        tvTag = 'OANDA:XAUUSD'; 
                         marketType = 'COMMODITIES';
                         displayName = 'XAU';
                     }
                     else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
-                        apiType = 'B';
-                        fetchTag = rawTicker.replace('USD', 'USDT'); 
-                        tvTag = `BINANCE:${fetchTag}`; 
+                        // All standard Forex routed to Kraken (EURUSD, GBPUSD, etc)
+                        apiType = 'KRAKEN';
+                        fetchTag = rawTicker; 
+                        tvTag = `FX:${rawTicker}`; 
                         marketType = 'FOREX';
                         displayName = rawTicker;
                     } 
@@ -475,7 +478,7 @@
                             tag: fetchTag, 
                             tv: tvTag, 
                             type: apiType, 
-                            search: displayName.replace('USD', '').replace(' (PAXG)', '').replace(' (SLV)', ''), 
+                            search: displayName.replace('USD', ''), 
                             market: marketType 
                         };
                         setList([...list, newItem]); 
@@ -551,7 +554,7 @@
                                 value={newTicker} 
                                 onChange={(e) => setNewTicker(e.target.value)} 
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
-                                placeholder="Add ticker (e.g. TSLA)" 
+                                placeholder="Add ticker (e.g. GBPUSD)" 
                                 style={{ flex: 1, background: 'rgba(0, 0, 0, 0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '12px', borderRadius: '12px', outline: 'none', fontSize: '12px', fontWeight: '600' }} 
                             />
                             <button onClick={handleAddTicker} style={{ background: '#fff', border: 'none', padding: '0 20px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', color: '#000', fontSize: '16px' }}>+</button>
@@ -588,14 +591,15 @@
                             })}
                         </div>
 
+                        {/* --- FIXED: Flex-Grid for Trade Setups to prevent overlapping --- */}
                         <div className="glass-panel" style={{ padding: '20px 16px', borderTop: '3px solid #888' }}>
                             <div style={{ fontSize: '11px', color: '#fff', fontWeight: '900', letterSpacing: '1px', marginBottom: '16px' }}>AI TRADE SETUPS BY TIMEFRAME</div>
                             
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: '5px', fontSize: '9px', color: '#666', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '12px' }}>
-                                <div>STRATEGY</div>
-                                <div style={{ textAlign: 'center' }}>ENTRY</div>
-                                <div style={{ textAlign: 'center', color: '#00e676' }}>TARGET</div>
-                                <div style={{ textAlign: 'right', color: '#ff3d00' }}>STOP LOSS</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#666', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '12px' }}>
+                                <div style={{ flex: '1.2', minWidth: '0' }}>STRATEGY</div>
+                                <div style={{ flex: '1', textAlign: 'center', minWidth: '0' }}>ENTRY</div>
+                                <div style={{ flex: '1', textAlign: 'center', color: '#00e676', minWidth: '0' }}>TARGET</div>
+                                <div style={{ flex: '1', textAlign: 'right', color: '#ff3d00', minWidth: '0' }}>STOP LOSS</div>
                             </div>
 
                             {[
@@ -603,14 +607,14 @@
                                 { label: 'DAY', data: tradeSetups.day, desc: '1H - 24H' },
                                 { label: 'SWING', data: tradeSetups.swing, desc: '1D - 1W' }
                             ].map((row, i) => (
-                                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: '5px', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                                    <div>
+                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                                    <div style={{ flex: '1.2', minWidth: '0' }}>
                                         <div style={{ fontSize: '11px', fontWeight: '900', color: row.data.type === 'LONG' ? '#00e676' : row.data.type === 'SHORT' ? '#ff3d00' : '#888' }}>{row.label} <span style={{ fontSize: '8px' }}>({row.data.type})</span></div>
                                         <div style={{ fontSize: '8px', color: '#888', marginTop: '2px' }}>{row.desc}</div>
                                     </div>
-                                    <div className="number-font" style={{ textAlign: 'center', fontSize: '12px', fontWeight: '800' }}>{row.data.entry !== '...' ? '$' + row.data.entry : '...'}</div>
-                                    <div className="number-font" style={{ textAlign: 'center', fontSize: '12px', fontWeight: '800', color: '#00e676' }}>{row.data.tp !== '...' ? '$' + row.data.tp : '...'}</div>
-                                    <div className="number-font" style={{ textAlign: 'right', fontSize: '12px', fontWeight: '800', color: '#ff3d00' }}>{row.data.sl !== '...' ? '$' + row.data.sl : '...'}</div>
+                                    <div className="number-font" style={{ flex: '1', textAlign: 'center', fontSize: '11px', fontWeight: '800', whiteSpace: 'nowrap' }}>{row.data.entry !== '...' ? '$' + row.data.entry : '...'}</div>
+                                    <div className="number-font" style={{ flex: '1', textAlign: 'center', fontSize: '11px', fontWeight: '800', color: '#00e676', whiteSpace: 'nowrap' }}>{row.data.tp !== '...' ? '$' + row.data.tp : '...'}</div>
+                                    <div className="number-font" style={{ flex: '1', textAlign: 'right', fontSize: '11px', fontWeight: '800', color: '#ff3d00', whiteSpace: 'nowrap' }}>{row.data.sl !== '...' ? '$' + row.data.sl : '...'}</div>
                                 </div>
                             ))}
                         </div>
