@@ -98,14 +98,14 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // FIXED: Using KRAKEN API for flawless Spot Metals and Forex.
+        // FIXED: Using Binance Futures Engine for XAU, XAG, and Forex
         const DEFAULT_WATCHLIST = [
-            { id: 'XAU', name: 'SPOT GOLD', tag: 'XAUUSD', tv: 'OANDA:XAUUSD', type: 'KRAKEN', search: 'GOLD', market: 'COMMODITIES' },
-            { id: 'XAG', name: 'SPOT SILVER', tag: 'XAGUSD', tv: 'OANDA:XAGUSD', type: 'KRAKEN', search: 'SILVER', market: 'COMMODITIES' },
+            { id: 'XAU', name: 'SPOT GOLD', tag: 'XAUUSDT', tv: 'OANDA:XAUUSD', type: 'BINANCE_FUTURES', search: 'GOLD', market: 'COMMODITIES' },
+            { id: 'XAG', name: 'SPOT SILVER', tag: 'XAGUSDT', tv: 'OANDA:XAGUSD', type: 'BINANCE_FUTURES', search: 'SILVER', market: 'COMMODITIES' },
             { id: 'SPY', name: 'S&P 500 ETF', tag: 'SPY', tv: 'AMEX:SPY', type: 'F', search: 'S&P 500', market: 'US EQUITIES' },
-            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSD', tv: 'FX:EURUSD', type: 'KRAKEN', search: 'FOREX', market: 'FOREX' },
+            { id: 'EURUSD', name: 'EUR/USD', tag: 'EURUSDT', tv: 'FX:EURUSD', type: 'BINANCE_FUTURES', search: 'FOREX', market: 'FOREX' },
             { id: 'TSLA', name: 'TESLA', tag: 'TSLA', tv: 'NASDAQ:TSLA', type: 'F', search: 'TSLA', market: 'US EQUITIES' },
-            { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'B', search: 'CRYPTO', market: 'CRYPTO' }
+            { id: 'BTC', name: 'BITCOIN', tag: 'BTCUSDT', tv: 'BINANCE:BTCUSD', type: 'BINANCE_SPOT', search: 'CRYPTO', market: 'CRYPTO' }
         ];
 
         function WorldClock() {
@@ -143,9 +143,9 @@
         function TradeSyncPro() {
             const [active, setActive] = useState(DEFAULT_WATCHLIST[0]);
             
-            // VERSION 8 MEMORY: Triggers the new Kraken lists
+            // MEMORY V9 - Flush all old bugs out
             const [list, setList] = useState(() => {
-                const savedList = localStorage.getItem('tradeSyncWatchlist_v8');
+                const savedList = localStorage.getItem('tradeSyncWatchlist_v9');
                 if (savedList) {
                     try { return JSON.parse(savedList); } catch (e) { return DEFAULT_WATCHLIST; }
                 }
@@ -153,7 +153,7 @@
             });
 
             useEffect(() => {
-                localStorage.setItem('tradeSyncWatchlist_v8', JSON.stringify(list));
+                localStorage.setItem('tradeSyncWatchlist_v9', JSON.stringify(list));
             }, [list]);
 
             const [prices, setPrices] = useState({});
@@ -240,28 +240,21 @@
 
             const getMarketData = async (item) => {
                 try {
-                    // --- NEW: KRAKEN SPOT ENGINE ---
-                    if (item.type === 'KRAKEN') {
-                        const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${item.tag}`);
+                    // --- NEW: THE BINANCE FUTURES ENGINE ---
+                    if (item.type === 'BINANCE_FUTURES') {
+                        const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
-                        if (d.error && d.error.length > 0) return null;
-                        
-                        const pairKey = Object.keys(d.result)[0];
-                        const data = d.result[pairKey];
-                        const currentPrice = parseFloat(data.c[0]);
-                        const openPrice = parseFloat(data.o);
-                        const pct = openPrice > 0 ? ((currentPrice - openPrice) / openPrice) * 100 : 0;
-                        
-                        return { c: currentPrice, dp: pct };
+                        return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
                     } 
-                    else if (item.type === 'B') {
+                    else if (item.type === 'BINANCE_SPOT') {
                         const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${item.tag}`);
                         if (!r.ok) return null;
                         const d = await r.json();
                         return { c: parseFloat(d.lastPrice), dp: parseFloat(d.priceChangePercent) };
                     } 
                     else {
+                        // Finnhub strictly handles US Stocks/ETFs now
                         const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${item.tag}&token=${API_KEY}`);
                         if (!r.ok) return null;
                         const d = await r.json();
@@ -282,7 +275,7 @@
                     const data = await res.json();
                     
                     let filtered = data;
-                    if (symbolData.type === 'B' || symbolData.type === 'KRAKEN' || symbolData.id === 'SPY') {
+                    if (symbolData.type !== 'F' || symbolData.id === 'SPY') {
                         filtered = data.filter(n => (n.headline || '').toUpperCase().includes(symbolData.search) || (n.summary || '').toUpperCase().includes(symbolData.search));
                         if (filtered.length === 0) filtered = data;
                     }
@@ -424,7 +417,7 @@
                 return () => clearInterval(timer);
             }, [active.id, list.length]);
 
-            // --- SMART ROUTER V4 (Kraken Support) ---
+            // --- SMART ROUTER V5 (Binance Futures Engine) ---
             const handleAddTicker = () => {
                 if(newTicker) { 
                     const rawTicker = newTicker.toUpperCase().trim();
@@ -443,29 +436,28 @@
                         displayName = 'US30';
                     }
                     else if (rawTicker === 'XAG' || rawTicker === 'XAGUSD' || rawTicker === 'SILVER') {
-                        apiType = 'KRAKEN';
-                        fetchTag = 'XAGUSD';
+                        apiType = 'BINANCE_FUTURES';
+                        fetchTag = 'XAGUSDT';
                         tvTag = 'OANDA:XAGUSD'; 
                         marketType = 'COMMODITIES';
                         displayName = 'XAG';
                     }
                     else if (rawTicker === 'XAU' || rawTicker === 'XAUUSD' || rawTicker === 'GOLD') {
-                        apiType = 'KRAKEN';
-                        fetchTag = 'XAUUSD';
+                        apiType = 'BINANCE_FUTURES';
+                        fetchTag = 'XAUUSDT';
                         tvTag = 'OANDA:XAUUSD'; 
                         marketType = 'COMMODITIES';
                         displayName = 'XAU';
                     }
                     else if (rawTicker.endsWith('USD') && rawTicker.length === 6) {
-                        // All standard Forex routed to Kraken (EURUSD, GBPUSD, etc)
-                        apiType = 'KRAKEN';
-                        fetchTag = rawTicker; 
+                        apiType = 'BINANCE_FUTURES';
+                        fetchTag = rawTicker.replace('USD', 'USDT'); 
                         tvTag = `FX:${rawTicker}`; 
                         marketType = 'FOREX';
                         displayName = rawTicker;
                     } 
                     else if (rawTicker.endsWith('USDT') || rawTicker === 'BTC' || rawTicker === 'ETH') {
-                        apiType = 'B';
+                        apiType = 'BINANCE_SPOT';
                         fetchTag = rawTicker.endsWith('USDT') ? rawTicker : `${rawTicker}USDT`;
                         tvTag = `BINANCE:${fetchTag}`; 
                         marketType = 'CRYPTO';
@@ -591,7 +583,6 @@
                             })}
                         </div>
 
-                        {/* --- FIXED: Flex-Grid for Trade Setups to prevent overlapping --- */}
                         <div className="glass-panel" style={{ padding: '20px 16px', borderTop: '3px solid #888' }}>
                             <div style={{ fontSize: '11px', color: '#fff', fontWeight: '900', letterSpacing: '1px', marginBottom: '16px' }}>AI TRADE SETUPS BY TIMEFRAME</div>
                             
